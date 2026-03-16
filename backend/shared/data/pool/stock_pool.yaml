@@ -1,0 +1,21 @@
+# 股票池配置
+# 由 Tushare 数据服务自动更新
+
+meta:
+  created_at: "2026-03-16"
+  updated_at: "2026-03-16"
+  source: "tushare"
+  version: "1.0"
+
+# 配置参数
+config:
+  markets: ["SSE", "SZSE"]  # 沪深市场
+  exclude_st: true          # 排除 ST
+  exclude_star: false       # 不排除科创板
+  min_list_days: 60         # 上市至少 60 天
+
+# 股票列表（初始为空，由程序自动填充）
+stocks: []
+
+# 股票池历史
+history: []

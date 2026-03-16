@@ -1,0 +1,24 @@
+# Web Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+
+# Database
+sqlite-utils>=3.36
+
+# Data
+pandas>=2.1.0
+numpy>=1.26.0
+pyyaml>=6.0.1
+pyarrow>=14.0.0
+
+# ML
+stable-baselines3>=2.2.0
+gymnasium>=0.30.0
+torch>=2.1.0
+
+# Utils
+requests>=2.31.0
+python-dotenv>=1.0.0
+aiofiles>=23.2.1
+psutil>=5.9.0

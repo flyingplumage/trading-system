@@ -1,0 +1,31 @@
+{
+  "cpu": {
+    "max_cores": 8,
+    "max_percent": 80,
+    "affinity": []
+  },
+  "memory": {
+    "max_gb": 16,
+    "max_percent": 80,
+    "swap_allowed": false
+  },
+  "gpu": {
+    "enabled": true,
+    "device_ids": [0],
+    "memory_fraction": 0.8,
+    "allow_growth": true,
+    "mixed_precision": false
+  },
+  "disk": {
+    "max_use_percent": 90,
+    "temp_dir": "/tmp/training",
+    "checkpoint_dir": "./checkpoints"
+  },
+  "training": {
+    "max_concurrent_tasks": 1,
+    "default_batch_size": 64,
+    "default_learning_rate": 3e-5,
+    "early_stopping": true,
+    "patience": 10
+  }
+}

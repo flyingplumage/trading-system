@@ -1,0 +1,33 @@
+# Tushare Pro 配置
+tushare:
+  # API Token
+  token: "a184c315fd031d9adc136b0c6519aa481bffc281c1ae114f77a25beb"
+  
+  # API 基础 URL
+  api_url: "http://api.tushare.pro"
+  
+  # 请求限制（次/分钟）
+  rate_limit: 500
+  
+  # 数据缓存目录
+  cache_dir: "shared/data/raw"
+  
+  # 股票池配置
+  stock_pool:
+    # 市场：沪深 A 股
+    markets: ["SSE", "SZSE"]
+    # 排除 ST 股票
+    exclude_st: true
+    # 排除科创板（可选）
+    exclude_star: false
+    # 上市天数（排除新股）
+    min_list_days: 60
+  
+  # 增量更新配置
+  update:
+    # 每日更新
+    schedule: "daily"
+    # 更新时间（盘后）
+    update_time: "16:00"
+    # 数据保留天数
+    keep_days: 365
