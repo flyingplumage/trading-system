@@ -61,7 +61,6 @@ class SQLiteConnectionPool:
         conn = sqlite3.connect(
             self.db_path,
             check_same_thread=False,  # 允许跨线程使用（由池管理）
-            isolation_level=None,     # 自动提交模式
             timeout=30.0              # 锁等待超时 30 秒
         )
         
@@ -79,18 +78,15 @@ class SQLiteConnectionPool:
         """配置连接优化参数"""
         cursor = conn.cursor()
         
-        # 启用 WAL 模式
+        # 启用 WAL 模式（只需执行一次，后续连接会继承）
         cursor.execute("PRAGMA journal_mode=WAL")
         
         # 优化配置
         cursor.execute("PRAGMA synchronous=NORMAL")  # 平衡性能和安全性
         cursor.execute("PRAGMA cache_size=-64000")   # 64MB 缓存
         cursor.execute("PRAGMA temp_store=MEMORY")   # 临时表存内存
-        cursor.execute("PRAGMA mmap_size=268435456") # 256MB 内存映射
         cursor.execute("PRAGMA foreign_keys=ON")     # 启用外键
         
-        # 应用配置
-        conn.commit()
         cursor.close()
         
         logger.debug(f"[ConnectionPool] 连接配置完成 (WAL 模式)")
@@ -300,6 +296,7 @@ def close_pools():
         _write_pool.close_all()
 
 
-# 自动初始化（模块导入时）
-init_pools()
-logger.info("✅ 连接池模块加载完成")
+# 懒加载：在首次使用时初始化
+# 移除自动初始化，避免模块导入时阻塞
+# init_pools()
+# logger.info("✅ 连接池模块加载完成")

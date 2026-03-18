@@ -1,7 +1,8 @@
 # Tushare Pro 配置
 tushare:
-  # API Token
-  token: "a184c315fd031d9adc136b0c6519aa481bffc281c1ae114f77a25beb"
+  # API Token (从环境变量 TUSHARE_TOKEN 读取)
+  # 请勿在此处明文存储 Token！
+  token: "${TUSHARE_TOKEN}"
   
   # API 基础 URL
   api_url: "http://api.tushare.pro"

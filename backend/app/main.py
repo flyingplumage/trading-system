@@ -1,17 +1,29 @@
 """Quantitative Trading System Backend"""
 
-from fastapi import FastAPI
+import logging
+from typing import Union
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
 from app.api import experiments, models, train, data, strategy, resources, health, scheduler, tushare, environments, queue, websocket, auth, model_export, analysis, sector_analysis, validation, optimization, explanation, worker, hardware
 from app.api.agent import training_router, backtest_router, optimization_router, strategy_router
 from app.schemas.schemas import Response
 from app.services.websocket_manager import broadcaster
 
+# 配置日志
+logger = logging.getLogger(__name__)
+
 # 创建 FastAPI 应用
 app = FastAPI(
     title="Quantitative Trading System API",
     description="A 股超短交易智能体训练框架",
-    version="1.0.0"
+    version="1.1.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
 )
 
 # CORS 配置
@@ -22,6 +34,107 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ==================== 全局异常处理 ====================
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """
+    HTTP 异常处理（404, 405 等）
+    """
+    logger.warning(f"HTTP 异常：{exc.status_code} - {request.url}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "message": str(exc.detail),
+            "error_code": f"HTTP_{exc.status_code}"
+        }
+    )
+
+
+@app.exception_handler(HTTPException)
+async def fastapi_http_exception_handler(request: Request, exc: HTTPException):
+    """
+    FastAPI HTTP 异常处理
+    """
+    logger.warning(f"HTTP 异常：{exc.status_code} - {request.url}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "message": str(exc.detail),
+            "error_code": f"HTTP_{exc.status_code}"
+        }
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """
+    请求参数验证异常处理
+    """
+    logger.warning(f"参数验证失败：{exc.errors()} - {request.url}")
+    return JSONResponse(
+        status_code=400,
+        content={
+            "success": False,
+            "message": "请求参数验证失败",
+            "error_code": "VALIDATION_ERROR",
+            "details": exc.errors()
+        }
+    )
+
+
+@app.exception_handler(ValidationError)
+async def pydantic_validation_exception_handler(request: Request, exc: ValidationError):
+    """
+    Pydantic 验证异常处理
+    """
+    logger.warning(f"Pydantic 验证失败：{exc.errors()} - {request.url}")
+    return JSONResponse(
+        status_code=400,
+        content={
+            "success": False,
+            "message": "数据验证失败",
+            "error_code": "PYDANTIC_VALIDATION_ERROR",
+            "details": exc.errors()
+        }
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """
+    全局异常处理（未捕获的异常）
+    生产环境应隐藏详细错误信息
+    """
+    logger.error(f"未捕获异常：{type(exc).__name__} - {str(exc)}", exc_info=True)
+    
+    # 生产环境不返回详细错误信息
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "message": "服务器内部错误",
+            "error_code": "INTERNAL_ERROR"
+        }
+    )
+
+
+# ==================== 请求日志中间件 ====================
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """
+    记录所有请求的日志
+    """
+    logger.info(f"请求：{request.method} {request.url.path}")
+    response = await call_next(request)
+    logger.info(f"响应：{request.method} {request.url.path} - {response.status_code}")
+    return response
+
 
 # 注册路由
 app.include_router(auth.router)
@@ -74,12 +187,38 @@ async def agent_status():
         }
     )
 
-# 启动 WebSocket 广播器
+# 启动事件
 @app.on_event("startup")
 async def startup_event():
     """应用启动时初始化"""
+    logger.info("[System] 应用启动中...")
+    
+    # 初始化数据库
+    from app.db import database
+    database.init_db()
+    logger.info("[System] 数据库初始化完成")
+    
+    # 启动 WebSocket 广播器
     broadcaster.start()
-    print("[System] WebSocket 广播器已启动")
+    logger.info("[System] WebSocket 广播器已启动")
+    
+    logger.info("[System] 应用启动完成")
+
+
+# 关闭事件
+@app.on_event("shutdown")
+async def shutdown_event():
+    """应用关闭时清理资源"""
+    logger.info("[System] 应用关闭中...")
+    
+    # 停止 WebSocket 广播器
+    try:
+        broadcaster.stop()
+        logger.info("[System] WebSocket 广播器已停止")
+    except Exception as e:
+        logger.error(f"[System] 停止广播器失败：{e}")
+    
+    logger.info("[System] 应用已关闭")
 
 # 根路径
 @app.get("/", response_model=Response)

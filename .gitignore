@@ -1,0 +1,85 @@
+# 本地环境
+.env
+.env.local
+.env.*.local
+*.local
+
+# 依赖
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# 构建输出
+dist/
+build/
+*.egg-info/
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+logs/
+
+# 数据库（本地开发）
+data/*.db
+data/*.db-journal
+data/*.db-shm
+data/*.db-wal
+*.db
+
+# 测试
+.pytest_cache/
+.coverage
+htmlcov/
+cov_html/
+.tox/
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+*.bak
+
+# 模型和检查点（大文件）
+shared/models/
+shared/checkpoints/
+*.pth
+*.pt
+*.onnx
+*.h5
+
+# 数据缓存（大文件）
+shared/data/raw/
+shared/data/features/
+*.parquet
+*.feather
+*.pkl
+
+# Docker
+docker-compose.override.yml
+
+# 文档构建
+docs/_build/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# 证书和密钥
+*.pem
+*.key
+*.crt
+secrets/
