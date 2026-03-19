@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  iris-worker:
+    build: .
+    container_name: iris-worker
+    restart: unless-stopped
+    environment:
+      - SERVER_IP=${SERVER_IP:-162.14.115.79}
+      - WS_PORT=${WS_PORT:-5000}
+    ports:
+      - "8080:8080"
+    volumes:
+      - worker_models:/app/models
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:8080/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  worker_models:

@@ -1,0 +1,11 @@
+{
+  "instructions": [
+    {
+      "id": "cmd_1773891723",
+      "type": "install_packages",
+      "packages": ["numpy"],
+      "timestamp": "2026-03-19T11:42:03+08:00"
+    }
+  ],
+  "updated_at": "2026-03-19T11:42:03+08:00"
+}
