@@ -83,3 +83,9 @@ docs/_build/
 *.key
 *.crt
 secrets/
+
+# 敏感数据
+backend/backend/data/api_keys.json
+backend/backend/data/users.json
+data/api_keys.json
+data/users.json

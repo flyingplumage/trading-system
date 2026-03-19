@@ -6,7 +6,7 @@ Worker 管理 API
 from fastapi import APIRouter, HTTPException, Depends, Header
 from typing import List, Dict, Optional
 from app.schemas.schemas import Response
-from app.api.dependencies import get_current_user_any
+from app.api.auth import get_current_user_any
 import uuid
 from datetime import datetime
 

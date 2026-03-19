@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  worker:
+    image: python:3.12-slim
+    container_name: trading-worker
+    restart: unless-stopped
+    environment:
+      # 请修改为您的后端服务器地址
+      - BACKEND_URL=${BACKEND_URL:-http://localhost:5000}
+      - WS_URL=${WS_URL:-ws://localhost:5000/ws}
+      - API_KEY=${API_KEY}
+      - PYTORCH_ENABLE_MPS_FALLBACK=1
+      - OMP_NUM_THREADS=4
+    volumes:
+      - worker_data:/root/trading-worker/data
+    working_dir: /root/trading-worker
+    command: >
+      sh -c "
+      pip install torch torchvision torchaudio stable-baselines3 gymnasium pandas numpy requests aiohttp -q &&
+      python worker.py
+      "
+
+volumes:
+  worker_data:

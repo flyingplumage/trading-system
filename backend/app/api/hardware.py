@@ -7,7 +7,8 @@ from fastapi import APIRouter, HTTPException, Depends, Body, Query
 from typing import Optional, Dict, List
 from app.schemas.schemas import Response
 from app.services.hardware_config import hardware_config
-from app.api.dependencies import get_current_user_any, require_user_admin
+from app.api.auth import get_current_user_any
+from app.api.dependencies import require_user_admin
 
 router = APIRouter(prefix="/api/hardware", tags=["hardware"])
 
