@@ -52,7 +52,9 @@ async def worker_endpoint(websocket: WebSocket):
                         extra = {k: v for k, v in data.items() if k not in ["type", "task_id", "progress", "status"]}
                         
                         if task_id:
+                            # 更新任务进度
                             task_manager.update_worker_progress(worker_id, task_id, progress, status, extra)
+                            print(f"📊 [{worker_id}] 任务 {task_id} 进度：{progress}%")
                     
                     # Worker 上报日志
                     elif msg_type == "log":
@@ -66,6 +68,7 @@ async def worker_endpoint(websocket: WebSocket):
                         result = data.get("result", {})
                         if task_id:
                             task_manager.complete_task(task_id, result)
+                            print(f"✅ [{worker_id}] 任务完成：{task_id}")
                     
                     # Worker 报告错误
                     elif msg_type == "error":
@@ -73,6 +76,7 @@ async def worker_endpoint(websocket: WebSocket):
                         error = data.get("error", "")
                         if task_id:
                             task_manager.fail_task(task_id, error)
+                            print(f"❌ [{worker_id}] 任务失败：{task_id} - {error}")
                     
                 except WebSocketDisconnect:
                     break
