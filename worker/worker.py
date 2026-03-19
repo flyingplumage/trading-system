@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Iris Worker v29 - WebSocket 信令 + HTTP 文件传输"""
+"""Iris Worker v30 - 优化监控页面（1 屏显示 + 实时日志）"""
 from __future__ import unicode_literals
 import os, json, time, threading, subprocess, socket, asyncio, websockets, requests, shutil, platform, psutil
 from pathlib import Path
@@ -20,7 +20,7 @@ worker_state = {
     "dependency_install_log": [],
     "training_progress": 0, "training_loss": 0, "training_epoch": 0, "training_total_epochs": 0,
     "messages_received": 0, "messages_sent": 0, "uptime_seconds": 0, "reconnect_count": 0,
-    "worker_version": "v29",
+    "worker_version": "v30",
     "worker_id": socket.gethostname(),
     "hardware": {"cpu_percent": 0, "memory_percent": 0, "disk_percent": 0},
     "hardware_history": {"cpu": [], "memory": [], "disk": []},
@@ -46,15 +46,167 @@ worker_state["system_info"] = {
     "memory_total": round(psutil.virtual_memory().total / 1024 / 1024 / 1024, 2)
 }
 
-# HTML 模板（简化版）
+# 优化后的 HTML 模板（1 屏显示 + 实时日志）
 HTML_TEMPLATE = '''<!DOCTYPE html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8"><title>Iris Worker v29</title><meta http-equiv="refresh" content="2">
-<style>:root{--bg:#0f172a;--card:#1e293b;--text:#f1f5f9;--primary:#667eea;--success:#10b981;--warning:#f59e0b;--error:#ef4444}*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,"Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);padding:20px}.container{max-width:2000px;margin:0 auto}header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;padding-bottom:15px;border-bottom:1px solid var(--card)}h1{font-size:24px;background:linear-gradient(135deg,var(--primary),#764ba2);-webkit-background-clip:text;-webkit-text-fill-color:transparent}.subtitle{font-size:12px;color:#94a3b8}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:15px;margin-bottom:20px}.card{background:var(--card);border-radius:12px;padding:20px;border:1px solid rgba(255,255,255,0.05)}.card h2{font-size:14px;color:#94a3b8;margin-bottom:15px;text-transform:uppercase}.stat-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.03)}.stat-row:last-child{border-bottom:none}.stat-label{color:#94a3b8}.stat-value{font-weight:600}.badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600}.badge-success{background:rgba(16,185,129,0.2);color:#10b981}.badge-warning{background:rgba(245,158,11,0.2);color:#f59e0b}.badge-error{background:rgba(239,68,68,0.2);color:#ef4444}.badge-info{background:rgba(102,126,234,0.2);color:#667eea}.progress-bar{height:8px;background:rgba(255,255,255,0.1);border-radius:4px;overflow:hidden;margin:10px 0}.progress-fill{height:100%;background:linear-gradient(90deg,var(--primary),#764ba2)}.progress-fill.success{background:linear-gradient(90deg,#10b981,#059669)}.progress-fill.warning{background:linear-gradient(90deg,#f59e0b,#d97706)}.progress-fill.info{background:linear-gradient(90deg,#667eea,#764ba2)}.hw-chart{height:100px;margin-top:10px}.hw-line polyline{fill:none;stroke-width:2}.hw-line.cpu polyline{stroke:#3b82f6}.hw-line.memory polyline{stroke:#8b5cf6}.hw-line.disk polyline{stroke:#ec4899}.hw-current{text-align:center;margin-bottom:8px;font-size:20px;font-weight:600}.hw-label{text-align:center;font-size:11px;color:#94a3b8}.logs-container{max-height:500px;overflow-y:auto;font-family:monospace;font-size:11px;background:rgba(0,0,0,0.3);border-radius:10px;padding:15px}.log-entry{padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.03);display:flex;gap:10px}.log-time{color:#64748b;font-size:10px}.log-badge{min-width:60px;text-align:center;padding:2px 8px;border-radius:4px;font-size:9px;font-weight:600}.log-info{color:#667eea}.log-info .log-badge{background:rgba(102,126,234,0.2)}.log-success{color:#10b981}.log-success .log-badge{background:rgba(16,185,129,0.2)}.log-progress{color:#f59e0b}.log-progress .log-badge{background:rgba(245,158,11,0.2)}.log-error{color:#ef4444}.log-error .log-badge{background:rgba(239,68,68,0.2)}.log-message{flex:1;word-break:break-word}.install-list{max-height:300px;overflow-y:auto}.install-item{background:rgba(0,0,0,0.2);padding:10px;border-radius:8px;margin-bottom:8px}.epoch-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.epoch-item{background:rgba(16,185,129,0.2);color:#10b981;padding:4px 12px;border-radius:12px}.epoch-item.pending{background:rgba(148,163,184,0.2);color:#94a3b8}.task-item{background:rgba(0,0,0,0.2);padding:12px;border-radius:8px;margin-bottom:10px}.task-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.task-name{font-weight:600}.task-status{font-size:11px;padding:2px 8px;border-radius:8px}.task-status.running{background:rgba(245,158,11,0.2);color:#f59e0b}.task-status.completed{background:rgba(16,185,129,0.2);color:#10b981}.task-status.pending{background:rgba(102,126,234,0.2);color:#667eea}::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:var(--card);border-radius:4px}</style>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Iris Worker v30</title>
+    <style>
+        :root{--bg:#0f172a;--card:#1e293b;--text:#f1f5f9;--primary:#667eea;--success:#10b981;--warning:#f59e0b;--error:#ef4444}
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:-apple-system,BlinkMacSystemFont,"Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);padding:10px;height:100vh;overflow:hidden}
+        .container{max-width:100%;margin:0 auto;height:calc(100vh - 20px);display:flex;flex-direction:column}
+        header{display:flex;justify-content:space-between;align-items:center;padding-bottom:8px;border-bottom:1px solid var(--card);margin-bottom:10px;flex-shrink:0}
+        h1{font-size:18px;background:linear-gradient(135deg,var(--primary),#764ba2);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+        .subtitle{font-size:10px;color:#94a3b8}
+        .badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600}
+        .badge-success{background:rgba(16,185,129,0.2);color:#10b981}
+        .badge-warning{background:rgba(245,158,11,0.2);color:#f59e0b}
+        .badge-error{background:rgba(239,68,68,0.2);color:#ef4444}
+        .badge-info{background:rgba(102,126,234,0.2);color:#667eea}
+        .main-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;flex:1;overflow:hidden}
+        .left-panel{grid-column:span 4;display:flex;flex-direction:column;gap:8px;overflow:hidden}
+        .right-panel{grid-column:span 2;display:flex;flex-direction:column;gap:8px;overflow:hidden}
+        .card{background:var(--card);border-radius:8px;padding:10px;border:1px solid rgba(255,255,255,0.05);overflow:hidden}
+        .card h2{font-size:11px;color:#94a3b8;margin-bottom:8px;text-transform:uppercase}
+        .stat-row{display:flex;justify-content:space-between;padding:4px 0;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.03)}
+        .stat-row:last-child{border-bottom:none}
+        .stat-label{color:#94a3b8}
+        .stat-value{font-weight:600}
+        .progress-bar{height:4px;background:rgba(255,255,255,0.1);border-radius:2px;overflow:hidden;margin:6px 0}
+        .progress-fill{height:100%;background:linear-gradient(90deg,var(--primary),#764ba2);transition:width 0.3s}
+        .progress-fill.success{background:linear-gradient(90deg,#10b981,#059669)}
+        .progress-fill.warning{background:linear-gradient(90deg,#f59e0b,#d97706)}
+        .hw-chart{height:60px}
+        .hw-line polyline{fill:none;stroke-width:2;stroke-linecap:round}
+        .hw-line.cpu polyline{stroke:#3b82f6}
+        .hw-line.memory polyline{stroke:#8b5cf6}
+        .hw-line.disk polyline{stroke:#ec4899}
+        .hw-current{text-align:center;font-size:16px;font-weight:600;margin-bottom:4px}
+        .hw-label{text-align:center;font-size:9px;color:#94a3b8}
+        .logs-container{flex:1;overflow-y:auto;font-family:monospace;font-size:10px;background:rgba(0,0,0,0.3);border-radius:6px;padding:8px}
+        .log-entry{padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03);display:flex;gap:6px}
+        .log-time{color:#64748b;font-size:9px;white-space:nowrap}
+        .log-badge{min-width:45px;text-align:center;padding:1px 4px;border-radius:3px;font-size:8px;font-weight:600;text-transform:uppercase}
+        .log-info{color:#667eea}.log-info .log-badge{background:rgba(102,126,234,0.2)}
+        .log-success{color:#10b981}.log-success .log-badge{background:rgba(16,185,129,0.2)}
+        .log-progress{color:#f59e0b}.log-progress .log-badge{background:rgba(245,158,11,0.2)}
+        .log-error{color:#ef4444}.log-error .log-badge{background:rgba(239,68,68,0.2)}
+        .log-message{flex:1;word-break:break-word;line-height:1.3}
+        .task-item{background:rgba(0,0,0,0.2);padding:8px;border-radius:6px;margin-bottom:6px}
+        .task-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+        .task-name{font-weight:600;font-size:11px}
+        .task-status{font-size:9px;padding:1px 6px;border-radius:6px}
+        .task-status.running{background:rgba(245,158,11,0.2);color:#f59e0b}
+        .task-status.completed{background:rgba(16,185,129,0.2);color:#10b981}
+        .task-status.pending{background:rgba(102,126,234,0.2);color:#667eea}
+        .install-item{background:rgba(0,0,0,0.2);padding:6px;border-radius:4px;margin-bottom:4px;font-size:10px}
+        .epoch-list{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+        .epoch-item{background:rgba(16,185,129,0.2);color:#10b981;padding:2px 8px;border-radius:8px;font-size:9px}
+        .epoch-item.pending{background:rgba(148,163,184,0.2);color:#94a3b8}
+        ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:var(--card);border-radius:2px}
+    </style>
 </head>
-<body><div class="container"><header><div><h1>🚀 Iris Worker <span id="version-badge" class="badge badge-info">v29</span></h1><div class="subtitle" id="subtitle">Loading...</div></div><div><span id="connection-status" class="badge badge-warning">⏳ 连接中...</span></div></header><div class="grid"><div class="card"><h2>📊 连接状态</h2><div class="stat-row"><span class="stat-label">WebSocket</span><span id="ws-status" class="badge">-</span></div><div class="stat-row"><span class="stat-label">运行时间</span><span id="uptime">0s</span></div><div class="stat-row"><span class="stat-label">重连次数</span><span id="reconnects">0</span></div><div class="stat-row"><span class="stat-label">接收消息</span><span id="msg-recv">0</span></div><div class="stat-row"><span class="stat-label">发送消息</span><span id="msg-sent">0</span></div></div><div class="card"><h2>📈 运行状态</h2><div class="stat-row"><span class="stat-label">当前状态</span><span id="op-status" class="badge">-</span></div><div class="stat-row"><span class="stat-label">当前操作</span><span id="operation">-</span></div><div class="stat-row"><span class="stat-label">当前任务</span><span id="current-task">-</span></div><div class="stat-row"><span class="stat-label">最后活动</span><span id="last-activity">-</span></div></div><div class="card"><h2>💻 CPU</h2><div class="hw-current" id="cpu-current">0%</div><div class="progress-bar"><div class="progress-fill" id="cpu-progress" style="width:0%"></div></div><div class="hw-chart cpu"><svg viewBox="0 0 300 100"><polyline id="cpu-polyline" points=""></polyline></svg></div><div class="hw-label">最近 60 秒趋势</div></div><div class="card"><h2>🧠 内存</h2><div class="hw-current" id="memory-current">0%</div><div class="progress-bar"><div class="progress-fill" id="memory-progress" style="width:0%"></div></div><div class="hw-chart memory"><svg viewBox="0 0 300 100"><polyline id="memory-polyline" points=""></polyline></svg></div><div class="hw-label">最近 60 秒趋势</div></div><div class="card"><h2>💾 磁盘</h2><div class="hw-current" id="disk-current">0%</div><div class="progress-bar"><div class="progress-fill" id="disk-progress" style="width:0%"></div></div><div class="hw-chart disk"><svg viewBox="0 0 300 100"><polyline id="disk-polyline" points=""></polyline></svg></div><div class="hw-label">使用率</div></div><div class="card"><h2>🖥️ 系统信息</h2><div class="stat-row"><span class="stat-label">主机名</span><span id="sys-hostname" class="stat-value">-</span></div><div class="stat-row"><span class="stat-label">Python</span><span id="sys-python" class="stat-value">-</span></div><div class="stat-row"><span class="stat-label">平台</span><span id="sys-platform" class="stat-value">-</span></div><div class="stat-row"><span class="stat-label">CPU 核心</span><span id="sys-cpu" class="stat-value">-</span></div><div class="stat-row"><span class="stat-label">内存总量</span><span id="sys-memory" class="stat-value">-</span></div></div></div><div class="grid" style="grid-template-columns:2fr 1fr;"><div class="card" style="grid-column:span 2;"><h2>📝 实时日志 (最近 200 条)</h2><div class="logs-container" id="logs">加载中...</div></div><div style="display:flex;flex-direction:column;gap:15px;"><div class="card"><h2>📦 依赖安装</h2><div class="stat-row"><span class="stat-label">进度</span><span id="dep-progress-text" class="stat-value">0%</span></div><div class="progress-bar"><div class="progress-fill warning" id="dep-progress" style="width:0%"></div></div><div class="stat-row"><span class="stat-label">已安装</span><span id="dep-installed" class="stat-value">0/0</span></div><div class="stat-row"><span class="stat-label">当前源</span><span id="dep-source" class="stat-value">-</span></div><div class="install-list" id="install-details" style="margin-top:10px;">暂无数据</div></div><div class="card"><h2>🧠 训练进度</h2><div class="stat-row"><span class="stat-label">进度</span><span id="train-progress-text" class="stat-value">0%</span></div><div class="progress-bar"><div class="progress-fill success" id="train-progress" style="width:0%"></div></div><div class="stat-row"><span class="stat-label">Epoch</span><span id="train-epoch" class="stat-value">0/0</span></div><div class="stat-row"><span class="stat-label">Loss</span><span id="train-loss" class="stat-value">-</span></div><div id="epoch-container" style="margin-top:10px;display:none;"><div class="hw-label" style="margin-bottom:8px;">Epoch 进度</div><div class="epoch-list" id="epoch-list"></div></div></div></div></div><div class="card" id="tasks-card" style="margin-top:20px;display:none;"><h2>📋 活动任务（服务端监控）</h2><div id="tasks-list">暂无活动任务</div></div></div>
-<script>const eventSource=new EventSource('/stream');eventSource.onopen=()=>{document.getElementById('connection-status').className='badge badge-success';document.getElementById('connection-status').textContent='✅ 已连接';loadInitialData();};eventSource.onerror=()=>{document.getElementById('connection-status').className='badge badge-error';document.getElementById('connection-status').textContent='❌ 断开';};eventSource.addEventListener('message',e=>updateUI(JSON.parse(e.data)));function loadInitialData(){fetch('/status').then(r=>r.json()).then(updateUI);fetch('/logs').then(r=>r.json()).then(d=>renderLogs(d.logs));}function updateUI(s){document.getElementById('version-badge').textContent=s.worker_version||'v29';document.getElementById('subtitle').textContent=(s.worker_id||'')+' • ws://'+(s.worker_id||'');document.getElementById('ws-status').innerHTML=s.websocket_connected?'<span class="badge badge-success">✅ 已连接</span>':'<span class="badge badge-error">❌ 未连接</span>';document.getElementById('uptime').textContent=formatUptime(s.uptime_seconds||0);document.getElementById('reconnects').textContent=s.reconnect_count||0;document.getElementById('msg-recv').textContent=s.messages_received||0;document.getElementById('msg-sent').textContent=s.messages_sent||0;document.getElementById('op-status').innerHTML=s.status?'<span class="badge badge-info">'+s.status.toUpperCase()+'</span>':'-';document.getElementById('operation').textContent=s.current_operation||'-';document.getElementById('current-task').textContent=s.current_task?(s.current_task.task_id||'有任务'):'-';document.getElementById('last-activity').textContent=s.last_activity?new Date(s.last_activity).toLocaleString():'-';const hw=s.hardware||{};document.getElementById('cpu-current').textContent=(hw.cpu_percent||0)+'%';document.getElementById('cpu-progress').style.width=(hw.cpu_percent||0)+'%';document.getElementById('memory-current').textContent=(hw.memory_percent||0)+'%';document.getElementById('memory-progress').style.width=(hw.memory_percent||0)+'%';document.getElementById('disk-current').textContent=(hw.disk_percent||0)+'%';document.getElementById('disk-progress').style.width=(hw.disk_percent||0)+'%';renderChart('cpu',s.hardware_history?.cpu||[]);renderChart('memory',s.hardware_history?.memory||[]);renderChart('disk',s.hardware_history?.disk||[]);const sys=s.system_info||{};document.getElementById('sys-hostname').textContent=sys.hostname||'-';document.getElementById('sys-python').textContent=sys.python_version||'-';document.getElementById('sys-platform').textContent=sys.platform||'-';document.getElementById('sys-cpu').textContent=sys.cpu_count?sys.cpu_count+' 核心':'-';document.getElementById('sys-memory').textContent=sys.memory_total?sys.memory_total+' GB':'-';const dp=s.dependency_progress||0;document.getElementById('dep-progress').style.width=dp+'%';document.getElementById('dep-progress-text').textContent=dp+'%';document.getElementById('dep-installed').textContent=(s.dependency_installed_count||0)+'/'+(s.dependency_total_packages||0);document.getElementById('dep-source').textContent=s.dependency_source||'-';document.getElementById('install-details').innerHTML=(s.dependency_install_log||[]).map(i=>'<div class="install-item"><div class="install-header"><span>'+i.package+'</span><span class="badge '+(i.success?'badge-success':'badge-warning')+'">'+(i.success?'✅ 成功':'⏳ 等待')+'</span></div><div style="color:#64748b;font-size:11px;">'+(i.source||'等待中...')+'</div></div>').join('')||'暂无数据';const tp=s.training_progress||0;document.getElementById('train-progress').style.width=tp+'%';document.getElementById('train-progress-text').textContent=tp+'%';document.getElementById('train-epoch').textContent=(s.training_epoch||0)+'/'+(s.training_total_epochs||0);document.getElementById('train-loss').textContent=s.training_loss||'-';const ec=document.getElementById('epoch-container'),el=document.getElementById('epoch-list');if(s.training_epoch&&s.training_total_epochs){ec.style.display='block';let h='';for(let i=1;i<=s.training_total_epochs;i++)h+='<span class="epoch-item '+(i<=s.training_epoch?'':'pending')+'">'+(i<=s.training_epoch?'✅':'⏳')+' E'+i+'</span>';el.innerHTML=h;}else ec.style.display='none';renderTasks(s.server_tasks||[]);}function renderChart(t,d){const p=document.getElementById(t+'-polyline');if(!p||d.length<2)return;const w=300,h=100,s=w/(d.length-1);p.setAttribute('points',d.map((v,i)=>(i*s)+','+(h-(v/100*h))).join(' '));}function renderLogs(logs){const l=document.getElementById('logs');l.innerHTML=(logs||[]).slice(-200).reverse().map(log=>'<div class="log-entry log-'+(log.level||'info')+'"><span class="log-time">['+new Date(log.timestamp).toLocaleTimeString()+']</span><span class="log-badge">'+log.level+'</span><span class="log-message">'+escapeHtml(log.message)+'</span></div>').join('');l.scrollTop=l.scrollHeight;}function renderTasks(tasks){const card=document.getElementById('tasks-card'),list=document.getElementById('tasks-list');if(!tasks||tasks.length===0){card.style.display='none';return;}card.style.display='block';let html='';for(const task of tasks){const status=task.status||'pending',prog=task.progress||0;html+='<div class="task-item"><div class="task-header"><span class="task-name">'+task.task_id+'</span><span class="task-status '+status+'">'+status+'</span></div><div class="progress-bar"><div class="progress-fill info" style="width:'+prog+'%"></div></div><div style="font-size:11px;color:#94a3b8;margin-top:5px;">'+prog+'% 完成 - '+task.task_type+'</div></div>';}list.innerHTML=html||'暂无活动任务';}function formatUptime(s){const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),r=s%60;return h>0?h+'h '+m+'m '+r+'s':m>0?m+'m '+r+'s':r+'s';}function escapeHtml(t){if(!t)return'';const d=document.createElement('div');d.textContent=String(t);return d.innerHTML;}</script>
-</body></html>'''
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>🚀 Iris Worker <span id="version-badge" class="badge badge-info">v30</span></h1>
+                <div class="subtitle" id="subtitle">Loading...</div>
+            </div>
+            <div><span id="connection-status" class="badge badge-warning">⏳</span></div>
+        </header>
+        <div class="main-grid">
+            <div class="left-panel">
+                <div class="card" style="flex:1;display:flex;flex-direction:column">
+                    <h2>📝 实时日志</h2>
+                    <div class="logs-container" id="logs" style="flex:1"></div>
+                </div>
+            </div>
+            <div class="right-panel">
+                <div class="card">
+                    <h2>📊 状态</h2>
+                    <div class="stat-row"><span class="stat-label">WebSocket</span><span id="ws-status" class="badge">-</span></div>
+                    <div class="stat-row"><span class="stat-label">状态</span><span id="op-status" class="badge">-</span></div>
+                    <div class="stat-row"><span class="stat-label">运行</span><span id="uptime">0s</span></div>
+                </div>
+                <div class="card">
+                    <h2>💻 CPU</h2>
+                    <div class="hw-current" id="cpu-current">0%</div>
+                    <div class="progress-bar"><div class="progress-fill" id="cpu-progress" style="width:0%"></div></div>
+                    <div class="hw-chart cpu"><svg viewBox="0 0 300 60"><polyline id="cpu-polyline" points=""></polyline></svg></div>
+                </div>
+                <div class="card">
+                    <h2>🧠 内存</h2>
+                    <div class="hw-current" id="memory-current">0%</div>
+                    <div class="progress-bar"><div class="progress-fill" id="memory-progress" style="width:0%"></div></div>
+                    <div class="hw-chart memory"><svg viewBox="0 0 300 60"><polyline id="memory-polyline" points=""></polyline></svg></div>
+                </div>
+                <div class="card">
+                    <h2>📦 依赖</h2>
+                    <div class="stat-row"><span class="stat-label">进度</span><span id="dep-progress-text">0%</span></div>
+                    <div class="progress-bar"><div class="progress-fill warning" id="dep-progress" style="width:0%"></div></div>
+                    <div class="stat-row"><span class="stat-label">已安装</span><span id="dep-installed">0/0</span></div>
+                    <div id="install-details"></div>
+                </div>
+                <div class="card">
+                    <h2>🧠 训练</h2>
+                    <div class="stat-row"><span class="stat-label">进度</span><span id="train-progress-text">0%</span></div>
+                    <div class="progress-bar"><div class="progress-fill success" id="train-progress" style="width:0%"></div></div>
+                    <div class="stat-row"><span class="stat-label">Epoch</span><span id="train-epoch">0/0</span></div>
+                    <div class="stat-row"><span class="stat-label">Loss</span><span id="train-loss">-</span></div>
+                    <div id="epoch-container" style="display:none"><div class="epoch-list" id="epoch-list"></div></div>
+                </div>
+                <div class="card" id="tasks-card" style="display:none">
+                    <h2>📋 任务</h2>
+                    <div id="tasks-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        const eventSource=new EventSource('/stream');
+        eventSource.onopen=()=>{document.getElementById('connection-status').className='badge badge-success';document.getElementById('connection-status').textContent='✅';loadInitialData();};
+        eventSource.onerror=()=>{document.getElementById('connection-status').className='badge badge-error';document.getElementById('connection-status').textContent='❌';};
+        eventSource.addEventListener('message',e=>updateUI(JSON.parse(e.data)));
+        function loadInitialData(){fetch('/status').then(r=>r.json()).then(updateUI);fetch('/logs').then(r=>r.json()).then(d=>renderLogs(d.logs));}
+        function updateUI(s){
+            document.getElementById('version-badge').textContent=s.worker_version||'v30';
+            document.getElementById('subtitle').textContent=(s.worker_id||'')+' • ws://'+(s.worker_id||'');
+            document.getElementById('ws-status').innerHTML=s.websocket_connected?'<span class="badge badge-success">✅</span>':'<span class="badge badge-error">❌</span>';
+            document.getElementById('uptime').textContent=formatUptime(s.uptime_seconds||0);
+            document.getElementById('op-status').innerHTML=s.status?'<span class="badge badge-info">'+s.status.toUpperCase()+'</span>':'-';
+            const hw=s.hardware||{};
+            document.getElementById('cpu-current').textContent=(hw.cpu_percent||0)+'%';
+            document.getElementById('cpu-progress').style.width=(hw.cpu_percent||0)+'%';
+            document.getElementById('memory-current').textContent=(hw.memory_percent||0)+'%';
+            document.getElementById('memory-progress').style.width=(hw.memory_percent||0)+'%';
+            renderChart('cpu',s.hardware_history?.cpu||[]);
+            renderChart('memory',s.hardware_history?.memory||[]);
+            const dp=s.dependency_progress||0;
+            document.getElementById('dep-progress').style.width=dp+'%';
+            document.getElementById('dep-progress-text').textContent=dp+'%';
+            document.getElementById('dep-installed').textContent=(s.dependency_installed_count||0)+'/'+(s.dependency_total_packages||0);
+            document.getElementById('install-details').innerHTML=(s.dependency_install_log||[]).map(i=>'<div class="install-item"><b>'+i.package+'</b> '+(i.success?'✅':'⏳')+'</div>').join('')||'-';
+            const tp=s.training_progress||0;
+            document.getElementById('train-progress').style.width=tp+'%';
+            document.getElementById('train-progress-text').textContent=tp+'%';
+            document.getElementById('train-epoch').textContent=(s.training_epoch||0)+'/'+(s.training_total_epochs||0);
+            document.getElementById('train-loss').textContent=s.training_loss||'-';
+            const ec=document.getElementById('epoch-container'),el=document.getElementById('epoch-list');
+            if(s.training_epoch&&s.training_total_epochs){ec.style.display='block';let h='';for(let i=1;i<=s.training_total_epochs;i++)h+='<span class="epoch-item '+(i<=s.training_epoch?'':'pending')+'">'+(i<=s.training_epoch?'✅':'⏳')+'E'+i+'</span>';el.innerHTML=h;}else ec.style.display='none';
+            renderTasks(s.server_tasks||[]);
+        }
+        function renderChart(t,d){const p=document.getElementById(t+'-polyline');if(!p||d.length<2)return;const w=300,h=60,s=w/(d.length-1);p.setAttribute('points',d.map((v,i)=>(i*s)+','+(h-(v/100*h))).join(' '));}
+        function renderLogs(logs){const l=document.getElementById('logs');const wasAtBottom=l.scrollHeight-l.scrollTop<=l.clientHeight+50;l.innerHTML=(logs||[]).slice(-200).reverse().map(log=>'<div class="log-entry log-'+(log.level||'info')+'"><span class="log-time">['+new Date(log.timestamp).toLocaleTimeString()+']</span><span class="log-badge">'+log.level+'</span><span class="log-message">'+escapeHtml(log.message)+'</span></div>').join('');if(wasAtBottom)l.scrollTop=l.scrollHeight;}
+        function renderTasks(tasks){const card=document.getElementById('tasks-card'),list=document.getElementById('tasks-list');if(!tasks||tasks.length===0){card.style.display='none';return;}card.style.display='block';list.innerHTML=tasks.map(t=>'<div class="task-item"><div class="task-header"><span class="task-name">'+t.task_id+'</span><span class="task-status '+t.status+'">'+t.status+'</span></div><div class="progress-bar"><div class="progress-fill info" style="width:'+(t.progress||0)+'%"></div></div></div>').join('');}
+        function formatUptime(s){const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),r=s%60;return h>0?h+'h'+m+'m '+r+'s':m>0?m+'m '+r+'s':r+'s';}
+        function escapeHtml(t){if(!t)return'';const d=document.createElement('div');d.textContent=String(t);return d.innerHTML;}
+    </script>
+</body>
+</html>'''
 
 def get_hardware_info():
     return {"cpu_percent": round(psutil.cpu_percent(interval=0.1), 1), "memory_percent": round(psutil.virtual_memory().percent, 1), "disk_percent": round(psutil.disk_usage('/').percent, 1)}
@@ -77,27 +229,20 @@ async def hardware_monitor():
         await asyncio.sleep(2)
 
 async def upgrade_worker_via_http(version):
-    """通过 HTTP 下载代码进行升级"""
     add_log("info", f"Starting upgrade to {version} via HTTP")
     try:
-        # 通过 HTTP 下载代码
         code_url = f"{HTTP_BASE}/files/worker.py"
         add_log("info", f"Downloading from {code_url}...")
         state_changed.set()
-        
         resp = requests.get(code_url, timeout=60)
         if resp.status_code == 200:
-            # 备份旧版本
             if os.path.exists("/app/worker.py"):
                 shutil.copy("/app/worker.py", "/app/worker.py.bak")
                 add_log("info", "Backed up old version")
-            
-            # 写入新版本
             with open("/app/worker.py", "w", encoding='utf-8') as f:
                 f.write(resp.text)
             add_log("success", f"Downloaded {version} successfully")
             state_changed.set()
-            
             add_log("info", "Restarting...")
             time.sleep(2)
             os._exit(0)
@@ -119,17 +264,12 @@ async def websocket_client():
                 worker_state["reconnect_count"] = 0
                 worker_state["worker_id"] = worker_id
                 add_log("info", "WebSocket connected successfully")
-                
-                # 发送握手
                 await ws.send(json.dumps({"type": "handshake", "worker_id": worker_id, "version": worker_state["worker_version"]}))
-                
                 async for message in ws:
                     worker_state["messages_received"] += 1
                     try:
                         data = json.loads(message)
                         msg_type = data.get("type", "")
-                        
-                        # 服务端推送的任务更新
                         if msg_type == "task_update":
                             task = data.get("task", {})
                             existing = [t for t in worker_state["server_tasks"] if t.get("task_id") == task.get("task_id")]
@@ -138,14 +278,9 @@ async def websocket_client():
                             else:
                                 worker_state["server_tasks"].append(task)
                             state_changed.set()
-                            add_log("info", f"Task update: {task.get('task_id')} - {task.get('progress')}%")
-                        
-                        # 活动任务列表
                         elif msg_type == "active_tasks":
                             worker_state["server_tasks"] = data.get("tasks", [])
                             state_changed.set()
-                        
-                        # 指令处理
                         elif msg_type == "install_dependencies":
                             packages = data.get("data", {}).get("packages", [])
                             add_log("info", f"Received command: install {packages}")
@@ -159,7 +294,6 @@ async def websocket_client():
                         elif msg_type == "upgrade":
                             upgrade_data = data.get("data", {})
                             version = upgrade_data.get("version", "unknown")
-                            # ✅ 通过 HTTP 下载代码！
                             add_log("info", f"Received upgrade command: {version}")
                             asyncio.create_task(upgrade_worker_via_http(version))
                     except Exception as e:
@@ -216,7 +350,6 @@ async def execute_training(task, ws):
     worker_state["current_task"] = task
     epochs = task.get("epochs", 10)
     worker_state["training_total_epochs"] = epochs
-    
     for epoch in range(epochs):
         worker_state["training_epoch"] = epoch + 1
         for progress in range(0, 101, 10):
@@ -224,33 +357,15 @@ async def execute_training(task, ws):
             loss = 0.5 * (1 - progress/100) * (1 - epoch/epochs)
             worker_state["training_progress"] = int((epoch + progress/100) / epochs * 100)
             worker_state["training_loss"] = round(loss, 4)
-            
-            # 上报进度给服务端（通过 WebSocket 信令）
             if ws:
-                await ws.send(json.dumps({
-                    "type": "progress",
-                    "task_id": task_id,
-                    "progress": int((epoch + progress/100) / epochs * 100),
-                    "status": "running",
-                    "epoch": epoch + 1,
-                    "loss": loss
-                }))
-            
+                await ws.send(json.dumps({"type": "progress", "task_id": task_id, "progress": int((epoch + progress/100) / epochs * 100), "status": "running", "epoch": epoch + 1, "loss": loss}))
             add_log("progress", f"Epoch {epoch+1}/{epochs} - {progress}% - Loss:{loss:.3f}")
             state_changed.set()
-    
     worker_state["status"] = "idle"
     worker_state["current_task"] = None
     worker_state["training_progress"] = 0
-    
-    # 上报完成给服务端
     if ws:
-        await ws.send(json.dumps({
-            "type": "complete",
-            "task_id": task_id,
-            "result": {"final_loss": worker_state["training_loss"]}
-        }))
-    
+        await ws.send(json.dumps({"type": "complete", "task_id": task_id, "result": {"final_loss": worker_state["training_loss"]}}))
     add_log("success", f"Training complete: {task_id}")
     state_changed.set()
 
@@ -293,5 +408,5 @@ if __name__ == "__main__":
     print(f"HTML template created: {HTML_PATH}")
     threading.Thread(target=lambda: asyncio.run(websocket_client()), daemon=True).start()
     threading.Thread(target=lambda: asyncio.run(hardware_monitor()), daemon=True).start()
-    print(f"Iris Worker v29 started\nWebSocket: {WS_URL}\nHTTP Files: {HTTP_BASE}/files/\nMonitor: http://localhost:{WORKER_PORT}/")
+    print(f"Iris Worker v30 started\nWebSocket: {WS_URL}\nMonitor: http://localhost:{WORKER_PORT}/")
     app.run(host="0.0.0.0", port=WORKER_PORT, debug=False, threaded=True)
