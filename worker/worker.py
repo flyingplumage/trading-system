@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Iris Worker v30 - 优化监控页面（1 屏显示 + 实时日志）"""
+"""Iris Worker v31 - 优化布局（左侧卡片，右侧日志）"""
 from __future__ import unicode_literals
 import os, json, time, threading, subprocess, socket, asyncio, websockets, requests, shutil, platform, psutil
 from pathlib import Path
@@ -20,7 +20,7 @@ worker_state = {
     "dependency_install_log": [],
     "training_progress": 0, "training_loss": 0, "training_epoch": 0, "training_total_epochs": 0,
     "messages_received": 0, "messages_sent": 0, "uptime_seconds": 0, "reconnect_count": 0,
-    "worker_version": "v30",
+    "worker_version": "v31",
     "worker_id": socket.gethostname(),
     "hardware": {"cpu_percent": 0, "memory_percent": 0, "disk_percent": 0},
     "hardware_history": {"cpu": [], "memory": [], "disk": []},
@@ -46,13 +46,13 @@ worker_state["system_info"] = {
     "memory_total": round(psutil.virtual_memory().total / 1024 / 1024 / 1024, 2)
 }
 
-# 优化后的 HTML 模板（1 屏显示 + 实时日志）
+# 优化布局：左侧卡片，右侧日志
 HTML_TEMPLATE = '''<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Iris Worker v30</title>
+    <title>Iris Worker v31</title>
     <style>
         :root{--bg:#0f172a;--card:#1e293b;--text:#f1f5f9;--primary:#667eea;--success:#10b981;--warning:#f59e0b;--error:#ef4444}
         *{margin:0;padding:0;box-sizing:border-box}
@@ -62,28 +62,19 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         h1{font-size:18px;background:linear-gradient(135deg,var(--primary),#764ba2);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
         .subtitle{font-size:10px;color:#94a3b8}
         .badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600}
-        .badge-success{background:rgba(16,185,129,0.2);color:#10b981}
-        .badge-warning{background:rgba(245,158,11,0.2);color:#f59e0b}
-        .badge-error{background:rgba(239,68,68,0.2);color:#ef4444}
-        .badge-info{background:rgba(102,126,234,0.2);color:#667eea}
-        .main-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;flex:1;overflow:hidden}
-        .left-panel{grid-column:span 4;display:flex;flex-direction:column;gap:8px;overflow:hidden}
-        .right-panel{grid-column:span 2;display:flex;flex-direction:column;gap:8px;overflow:hidden}
+        .badge-success{background:rgba(16,185,129,0.2);color:#10b981}.badge-warning{background:rgba(245,158,11,0.2);color:#f59e0b}.badge-error{background:rgba(239,68,68,0.2);color:#ef4444}.badge-info{background:rgba(102,126,234,0.2);color:#667eea}
+        .main-grid{display:grid;grid-template-columns:1fr 350px;gap:8px;flex:1;overflow:hidden}
+        .left-panel{display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:min-content;gap:8px;overflow-y:auto}
+        .right-panel{display:flex;flex-direction:column;gap:8px;overflow:hidden}
         .card{background:var(--card);border-radius:8px;padding:10px;border:1px solid rgba(255,255,255,0.05);overflow:hidden}
         .card h2{font-size:11px;color:#94a3b8;margin-bottom:8px;text-transform:uppercase}
         .stat-row{display:flex;justify-content:space-between;padding:4px 0;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.03)}
-        .stat-row:last-child{border-bottom:none}
-        .stat-label{color:#94a3b8}
-        .stat-value{font-weight:600}
+        .stat-row:last-child{border-bottom:none}.stat-label{color:#94a3b8}.stat-value{font-weight:600}
         .progress-bar{height:4px;background:rgba(255,255,255,0.1);border-radius:2px;overflow:hidden;margin:6px 0}
         .progress-fill{height:100%;background:linear-gradient(90deg,var(--primary),#764ba2);transition:width 0.3s}
-        .progress-fill.success{background:linear-gradient(90deg,#10b981,#059669)}
-        .progress-fill.warning{background:linear-gradient(90deg,#f59e0b,#d97706)}
-        .hw-chart{height:60px}
-        .hw-line polyline{fill:none;stroke-width:2;stroke-linecap:round}
-        .hw-line.cpu polyline{stroke:#3b82f6}
-        .hw-line.memory polyline{stroke:#8b5cf6}
-        .hw-line.disk polyline{stroke:#ec4899}
+        .progress-fill.success{background:linear-gradient(90deg,#10b981,#059669)}.progress-fill.warning{background:linear-gradient(90deg,#f59e0b,#d97706)}
+        .hw-chart{height:50px}.hw-line polyline{fill:none;stroke-width:2;stroke-linecap:round}
+        .hw-line.cpu polyline{stroke:#3b82f6}.hw-line.memory polyline{stroke:#8b5cf6}.hw-line.disk polyline{stroke:#ec4899}
         .hw-current{text-align:center;font-size:16px;font-weight:600;margin-bottom:4px}
         .hw-label{text-align:center;font-size:9px;color:#94a3b8}
         .logs-container{flex:1;overflow-y:auto;font-family:monospace;font-size:10px;background:rgba(0,0,0,0.3);border-radius:6px;padding:8px}
@@ -97,11 +88,8 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         .log-message{flex:1;word-break:break-word;line-height:1.3}
         .task-item{background:rgba(0,0,0,0.2);padding:8px;border-radius:6px;margin-bottom:6px}
         .task-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
-        .task-name{font-weight:600;font-size:11px}
-        .task-status{font-size:9px;padding:1px 6px;border-radius:6px}
-        .task-status.running{background:rgba(245,158,11,0.2);color:#f59e0b}
-        .task-status.completed{background:rgba(16,185,129,0.2);color:#10b981}
-        .task-status.pending{background:rgba(102,126,234,0.2);color:#667eea}
+        .task-name{font-weight:600;font-size:11px}.task-status{font-size:9px;padding:1px 6px;border-radius:6px}
+        .task-status.running{background:rgba(245,158,11,0.2);color:#f59e0b}.task-status.completed{background:rgba(16,185,129,0.2);color:#10b981}
         .install-item{background:rgba(0,0,0,0.2);padding:6px;border-radius:4px;margin-bottom:4px;font-size:10px}
         .epoch-list{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
         .epoch-item{background:rgba(16,185,129,0.2);color:#10b981;padding:2px 8px;border-radius:8px;font-size:9px}
@@ -113,36 +101,31 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
     <div class="container">
         <header>
             <div>
-                <h1>🚀 Iris Worker <span id="version-badge" class="badge badge-info">v30</span></h1>
+                <h1>🚀 Iris Worker <span id="version-badge" class="badge badge-info">v31</span></h1>
                 <div class="subtitle" id="subtitle">Loading...</div>
             </div>
             <div><span id="connection-status" class="badge badge-warning">⏳</span></div>
         </header>
         <div class="main-grid">
             <div class="left-panel">
-                <div class="card" style="flex:1;display:flex;flex-direction:column">
-                    <h2>📝 实时日志</h2>
-                    <div class="logs-container" id="logs" style="flex:1"></div>
-                </div>
-            </div>
-            <div class="right-panel">
                 <div class="card">
-                    <h2>📊 状态</h2>
+                    <h2>📊 连接</h2>
                     <div class="stat-row"><span class="stat-label">WebSocket</span><span id="ws-status" class="badge">-</span></div>
                     <div class="stat-row"><span class="stat-label">状态</span><span id="op-status" class="badge">-</span></div>
                     <div class="stat-row"><span class="stat-label">运行</span><span id="uptime">0s</span></div>
+                    <div class="stat-row"><span class="stat-label">重连</span><span id="reconnects">0</span></div>
                 </div>
                 <div class="card">
                     <h2>💻 CPU</h2>
                     <div class="hw-current" id="cpu-current">0%</div>
                     <div class="progress-bar"><div class="progress-fill" id="cpu-progress" style="width:0%"></div></div>
-                    <div class="hw-chart cpu"><svg viewBox="0 0 300 60"><polyline id="cpu-polyline" points=""></polyline></svg></div>
+                    <div class="hw-chart cpu"><svg viewBox="0 0 300 50"><polyline id="cpu-polyline" points=""></polyline></svg></div>
                 </div>
                 <div class="card">
                     <h2>🧠 内存</h2>
                     <div class="hw-current" id="memory-current">0%</div>
                     <div class="progress-bar"><div class="progress-fill" id="memory-progress" style="width:0%"></div></div>
-                    <div class="hw-chart memory"><svg viewBox="0 0 300 60"><polyline id="memory-polyline" points=""></polyline></svg></div>
+                    <div class="hw-chart memory"><svg viewBox="0 0 300 50"><polyline id="memory-polyline" points=""></polyline></svg></div>
                 </div>
                 <div class="card">
                     <h2>📦 依赖</h2>
@@ -164,6 +147,12 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                     <div id="tasks-list"></div>
                 </div>
             </div>
+            <div class="right-panel">
+                <div class="card" style="flex:1;display:flex;flex-direction:column">
+                    <h2>📝 实时日志</h2>
+                    <div class="logs-container" id="logs" style="flex:1"></div>
+                </div>
+            </div>
         </div>
     </div>
     <script>
@@ -173,33 +162,31 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         eventSource.addEventListener('message',e=>updateUI(JSON.parse(e.data)));
         function loadInitialData(){fetch('/status').then(r=>r.json()).then(updateUI);fetch('/logs').then(r=>r.json()).then(d=>renderLogs(d.logs));}
         function updateUI(s){
-            document.getElementById('version-badge').textContent=s.worker_version||'v30';
+            document.getElementById('version-badge').textContent=s.worker_version||'v31';
             document.getElementById('subtitle').textContent=(s.worker_id||'')+' • ws://'+(s.worker_id||'');
             document.getElementById('ws-status').innerHTML=s.websocket_connected?'<span class="badge badge-success">✅</span>':'<span class="badge badge-error">❌</span>';
             document.getElementById('uptime').textContent=formatUptime(s.uptime_seconds||0);
+            document.getElementById('reconnects').textContent=s.reconnect_count||0;
             document.getElementById('op-status').innerHTML=s.status?'<span class="badge badge-info">'+s.status.toUpperCase()+'</span>':'-';
             const hw=s.hardware||{};
             document.getElementById('cpu-current').textContent=(hw.cpu_percent||0)+'%';
             document.getElementById('cpu-progress').style.width=(hw.cpu_percent||0)+'%';
             document.getElementById('memory-current').textContent=(hw.memory_percent||0)+'%';
             document.getElementById('memory-progress').style.width=(hw.memory_percent||0)+'%';
-            renderChart('cpu',s.hardware_history?.cpu||[]);
-            renderChart('memory',s.hardware_history?.memory||[]);
+            renderChart('cpu',s.hardware_history?.cpu||[]);renderChart('memory',s.hardware_history?.memory||[]);
             const dp=s.dependency_progress||0;
-            document.getElementById('dep-progress').style.width=dp+'%';
-            document.getElementById('dep-progress-text').textContent=dp+'%';
+            document.getElementById('dep-progress').style.width=dp+'%';document.getElementById('dep-progress-text').textContent=dp+'%';
             document.getElementById('dep-installed').textContent=(s.dependency_installed_count||0)+'/'+(s.dependency_total_packages||0);
             document.getElementById('install-details').innerHTML=(s.dependency_install_log||[]).map(i=>'<div class="install-item"><b>'+i.package+'</b> '+(i.success?'✅':'⏳')+'</div>').join('')||'-';
             const tp=s.training_progress||0;
-            document.getElementById('train-progress').style.width=tp+'%';
-            document.getElementById('train-progress-text').textContent=tp+'%';
+            document.getElementById('train-progress').style.width=tp+'%';document.getElementById('train-progress-text').textContent=tp+'%';
             document.getElementById('train-epoch').textContent=(s.training_epoch||0)+'/'+(s.training_total_epochs||0);
             document.getElementById('train-loss').textContent=s.training_loss||'-';
             const ec=document.getElementById('epoch-container'),el=document.getElementById('epoch-list');
             if(s.training_epoch&&s.training_total_epochs){ec.style.display='block';let h='';for(let i=1;i<=s.training_total_epochs;i++)h+='<span class="epoch-item '+(i<=s.training_epoch?'':'pending')+'">'+(i<=s.training_epoch?'✅':'⏳')+'E'+i+'</span>';el.innerHTML=h;}else ec.style.display='none';
             renderTasks(s.server_tasks||[]);
         }
-        function renderChart(t,d){const p=document.getElementById(t+'-polyline');if(!p||d.length<2)return;const w=300,h=60,s=w/(d.length-1);p.setAttribute('points',d.map((v,i)=>(i*s)+','+(h-(v/100*h))).join(' '));}
+        function renderChart(t,d){const p=document.getElementById(t+'-polyline');if(!p||d.length<2)return;const w=300,h=50,s=w/(d.length-1);p.setAttribute('points',d.map((v,i)=>(i*s)+','+(h-(v/100*h))).join(' '));}
         function renderLogs(logs){const l=document.getElementById('logs');const wasAtBottom=l.scrollHeight-l.scrollTop<=l.clientHeight+50;l.innerHTML=(logs||[]).slice(-200).reverse().map(log=>'<div class="log-entry log-'+(log.level||'info')+'"><span class="log-time">['+new Date(log.timestamp).toLocaleTimeString()+']</span><span class="log-badge">'+log.level+'</span><span class="log-message">'+escapeHtml(log.message)+'</span></div>').join('');if(wasAtBottom)l.scrollTop=l.scrollHeight;}
         function renderTasks(tasks){const card=document.getElementById('tasks-card'),list=document.getElementById('tasks-list');if(!tasks||tasks.length===0){card.style.display='none';return;}card.style.display='block';list.innerHTML=tasks.map(t=>'<div class="task-item"><div class="task-header"><span class="task-name">'+t.task_id+'</span><span class="task-status '+t.status+'">'+t.status+'</span></div><div class="progress-bar"><div class="progress-fill info" style="width:'+(t.progress||0)+'%"></div></div></div>').join('');}
         function formatUptime(s){const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),r=s%60;return h>0?h+'h'+m+'m '+r+'s':m>0?m+'m '+r+'s':r+'s';}
@@ -408,5 +395,5 @@ if __name__ == "__main__":
     print(f"HTML template created: {HTML_PATH}")
     threading.Thread(target=lambda: asyncio.run(websocket_client()), daemon=True).start()
     threading.Thread(target=lambda: asyncio.run(hardware_monitor()), daemon=True).start()
-    print(f"Iris Worker v30 started\nWebSocket: {WS_URL}\nMonitor: http://localhost:{WORKER_PORT}/")
+    print(f"Iris Worker v31 started\nWebSocket: {WS_URL}\nMonitor: http://localhost:{WORKER_PORT}/")
     app.run(host="0.0.0.0", port=WORKER_PORT, debug=False, threaded=True)
