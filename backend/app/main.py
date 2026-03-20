@@ -180,3 +180,10 @@ async def delete_task(task_id: str):
         del task_manager.tasks[task_id]
         return {"success": True, "message": f"Task {task_id} deleted"}
     return {"success": False, "error": "Task not found"}
+
+@app.get("/files/deploy-complete.sh")
+async def get_deploy_complete():
+    script_path = "/root/.openclaw/workspace/projects/trading-system-release/worker/deploy-complete.sh"
+    if os.path.exists(script_path):
+        return FileResponse(script_path, media_type="text/x-shellscript", filename="deploy-complete.sh")
+    return {"error": "Deploy script not found"}
