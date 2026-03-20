@@ -94,6 +94,15 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         .epoch-list{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
         .epoch-item{background:rgba(16,185,129,0.2);color:#10b981;padding:2px 8px;border-radius:8px;font-size:9px}
         .epoch-item.pending{background:rgba(148,163,184,0.2);color:#94a3b8}
+        .dep-item{background:rgba(0,0,0,0.2);padding:8px;border-radius:6px;margin-bottom:6px}
+        .dep-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+        .dep-name{font-weight:600;font-size:11px}
+        .dep-status{font-size:9px;padding:1px 6px;border-radius:6px}
+        .dep-status.success{background:rgba(16,185,129,0.2);color:#10b981}
+        .dep-status.warning{background:rgba(245,158,11,0.2);color:#f59e0b}
+        .dep-status.pending{background:rgba(148,163,184,0.2);color:#94a3b8}
+        .progress-fill.success{background:linear-gradient(90deg,#10b981,#059669)}
+        .progress-fill.warning{background:linear-gradient(90deg,#f59e0b,#d97706)}
         ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:var(--card);border-radius:2px}
     </style>
 </head>
@@ -140,6 +149,10 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                     <div class="progress-bar"><div class="progress-fill warning" id="dep-progress" style="width:0%"></div></div>
                     <div class="stat-row"><span class="stat-label">已安装</span><span id="dep-installed">0/0</span></div>
                     <div id="install-details"></div>
+                </div>
+                <div class="card" id="deps-detail-card" style="display:none">
+                    <h2>📦 依赖详情</h2>
+                    <div id="deps-list"></div>
                 </div>
                 <div class="card">
                     <h2>🧠 训练</h2>
