@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Iris Worker v40 - 优化布局（左侧卡片，右侧日志）"""
+"""Iris Worker v43 - 优化布局（左侧卡片，右侧日志）"""
 from __future__ import unicode_literals
 import os, json, time, threading, subprocess, socket, asyncio, websockets, requests, shutil, platform, psutil
 from pathlib import Path
@@ -20,7 +20,7 @@ worker_state = {
     "dependency_install_log": [],
     "training_progress": 0, "training_loss": 0, "training_epoch": 0, "training_total_epochs": 0,
     "messages_received": 0, "messages_sent": 0, "uptime_seconds": 0, "reconnect_count": 0,
-    "worker_version": "v40",
+    "worker_version": "v43",
     "worker_id": socket.gethostname(),
     "hardware": {"cpu_percent": 0, "memory_percent": 0, "disk_percent": 0},
     "hardware_history": {"cpu": [], "memory": [], "disk": []},
@@ -52,7 +52,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Iris Worker v40</title>
+    <title>Iris Worker v43</title>
     <style>
         :root{--bg:#0f172a;--card:#1e293b;--text:#f1f5f9;--primary:#667eea;--success:#10b981;--warning:#f59e0b;--error:#ef4444}
         *{margin:0;padding:0;box-sizing:border-box}
@@ -558,10 +558,14 @@ def index():
 
 if __name__ == "__main__":
     os.makedirs("/app/models", exist_ok=True)
-    with open(HTML_PATH, 'w', encoding='utf-8') as f:
-        f.write(HTML_TEMPLATE)
-    print(f"HTML template created: {HTML_PATH}")
+    # 只在文件不存在时创建 HTML
+    if not HTML_PATH.exists():
+        with open(HTML_PATH, 'w', encoding='utf-8') as f:
+            f.write(HTML_TEMPLATE)
+        print(f"HTML template created: {HTML_PATH}")
     threading.Thread(target=lambda: asyncio.run(websocket_client()), daemon=True).start()
     threading.Thread(target=lambda: asyncio.run(hardware_monitor()), daemon=True).start()
-    print(f"Iris Worker v40 started\nWebSocket: {WS_URL}\nMonitor: http://localhost:{WORKER_PORT}/")
+    print(f"Iris Worker v43 started
+WebSocket: {WS_URL}
+Monitor: http://localhost:{WORKER_PORT}/")
     app.run(host="0.0.0.0", port=WORKER_PORT, debug=False, threaded=True)
