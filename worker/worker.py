@@ -101,7 +101,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
     <div class="container">
         <header>
             <div>
-                <h1>🚀 Iris Worker <span id="version-badge" class="badge badge-info">v31</span></h1>
+                <h1>🚀 Iris Worker <span id="version-badge" class="badge badge-info">v39</span></h1>
                 <div class="subtitle" id="subtitle">Loading...</div>
             </div>
             <div><span id="connection-status" class="badge badge-warning">⏳</span></div>
