@@ -569,3 +569,15 @@ if __name__ == "__main__":
     threading.Thread(target=lambda: asyncio.run(hardware_monitor()), daemon=True).start()
     print(f"Iris Worker v49 started | WebSocket: {WS_URL} | Monitor: http://localhost:{WORKER_PORT}/")
     app.run(host="0.0.0.0", port=WORKER_PORT, debug=False, threaded=True)
+
+<!-- 强制添加 renderTasks -->
+<script>
+// 如果 updateUI 没有调用 renderTasks，在这里调用
+if (typeof updateUI === 'function') {
+    var origUpdateUI = updateUI;
+    updateUI = function(s) {
+        origUpdateUI(s);
+        renderTasks(s.server_tasks||[]);
+    };
+}
+</script>
