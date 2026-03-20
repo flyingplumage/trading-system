@@ -77,3 +77,11 @@ async def get_deploy_script_final():
     if os.path.exists(script_path):
         return FileResponse(script_path, media_type="text/x-shellscript", filename="deploy-mac-final.sh")
     return {"error": "Deploy script not found"}
+
+@app.get("/files/deploy-mac-v2.sh")
+async def get_deploy_script_v2():
+    """提供 v2 部署脚本"""
+    script_path = "/root/.openclaw/workspace/projects/trading-system-release/worker/deploy-mac-v2.sh"
+    if os.path.exists(script_path):
+        return FileResponse(script_path, media_type="text/x-shellscript", filename="deploy-mac-v2.sh")
+    return {"error": "Deploy script not found"}
