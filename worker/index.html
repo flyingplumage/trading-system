@@ -136,7 +136,7 @@
         eventSource.addEventListener('message',e=>updateUI(JSON.parse(e.data)));
         function loadInitialData(){fetch('/status').then(r=>r.json()).then(updateUI);fetch('/logs').then(r=>r.json()).then(d=>renderLogs(d.logs));}
         function updateUI(s){
-            document.getElementById('version-badge').textContent=s.worker_version||'v39';
+            document.getElementById('version-badge').textContent=s.worker_version||'v41';
             document.getElementById('subtitle').textContent=(s.worker_id||'')+' • ws://'+(s.worker_id||'');
             document.getElementById('ws-status').innerHTML=s.websocket_connected?'<span class="badge badge-success">✅</span>':'<span class="badge badge-error">❌</span>';
             document.getElementById('uptime').textContent=formatUptime(s.uptime_seconds||0);

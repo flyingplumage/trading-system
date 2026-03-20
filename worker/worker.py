@@ -254,7 +254,7 @@ async def hardware_monitor():
         await asyncio.sleep(2)
 
 async def upgrade_worker_via_http(version, task_id=None):
-    """升级 Worker 代码"""
+    """升级 Worker 代码 - 写入持久化位置"""
     global worker_state
     add_log("info", f"📦 Starting upgrade to {version}")
     worker_state["current_operation"] = "upgrading"
@@ -276,15 +276,36 @@ async def upgrade_worker_via_http(version, task_id=None):
         
         resp = requests.get(code_url, timeout=60)
         if resp.status_code == 200:
-            # 备份旧版本
-            if os.path.exists("/app/worker.py"):
-                shutil.copy("/app/worker.py", "/app/worker.py.bak")
-                add_log("info", "💾 Backed up old version")
+            # 尝试多个持久化位置
+            persist_paths = [
+                "/data/worker.py",  # Docker 卷挂载
+                "/persistent/worker.py",  # 持久化目录
+                "/app/worker.py",  # 默认位置
+                os.path.expanduser("~/worker.py"),  # 用户目录
+            ]
             
-            # 写入新版本
-            with open("/app/worker.py", "w", encoding='utf-8') as f:
-                f.write(resp.text)
-            add_log("success", f"✅ Downloaded {version} successfully")
+            written_path = None
+            for path in persist_paths:
+                try:
+                    os.makedirs(os.path.dirname(path), exist_ok=True)
+                    if os.path.exists(path):
+                        shutil.copy(path, path + ".bak")
+                        add_log("info", f"💾 Backed up {path}")
+                    with open(path, "w", encoding='utf-8') as f:
+                        f.write(resp.text)
+                    add_log("success", f"✅ Written to {path}")
+                    written_path = path
+                    break
+                except Exception as e:
+                    add_log("warn", f"⚠️ Failed to write {path}: {e}")
+            
+            if not written_path:
+                # 最后尝试直接写入
+                with open("/app/worker.py", "w", encoding='utf-8') as f:
+                    f.write(resp.text)
+                written_path = "/app/worker.py"
+                add_log("success", f"✅ Downloaded {version} to {written_path}")
+            
             state_changed.set()
             
             # 上报进度 80%
@@ -296,7 +317,7 @@ async def upgrade_worker_via_http(version, task_id=None):
             # 上报进度 100%
             if task_id and ws_connection:
                 await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": 100, "status": "completed"}))
-                await ws_connection.send(json.dumps({"type": "complete", "task_id": task_id, "result": {"version": version}}))
+                await ws_connection.send(json.dumps({"type": "complete", "task_id": task_id, "result": {"version": version, "path": written_path}}))
             
             time.sleep(2)
             os._exit(0)
