@@ -181,7 +181,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             </div>
         </div>
     </div>
-    <script>
+    <script src="worker.js?v=51">
         const eventSource=new EventSource('/stream');
         eventSource.onopen=()=>{document.getElementById('connection-status').className='badge badge-success';document.getElementById('connection-status').textContent='✅';loadInitialData();};
         eventSource.onerror=()=>{document.getElementById('connection-status').className='badge badge-error';document.getElementById('connection-status').textContent='❌';};
@@ -570,8 +570,9 @@ if __name__ == "__main__":
     print(f"Iris Worker v49 started | WebSocket: {WS_URL} | Monitor: http://localhost:{WORKER_PORT}/")
     app.run(host="0.0.0.0", port=WORKER_PORT, debug=False, threaded=True)
 
+<!-- 版本：v51 -->
 <!-- 强制添加 renderTasks -->
-<script>
+<script src="worker.js?v=51">
 // 如果 updateUI 没有调用 renderTasks，在这里调用
 if (typeof updateUI === 'function') {
     var origUpdateUI = updateUI;
@@ -582,7 +583,7 @@ if (typeof updateUI === 'function') {
 }
 </script>
 
-<script>
+<script src="worker.js?v=51">
 // 页面加载完成后调用 renderTasks
 window.addEventListener('load', function() {
     if (typeof renderTasks === 'function' && typeof serverState !== 'undefined') {
@@ -606,7 +607,7 @@ if (typeof window.origProcessMessage === 'undefined') {
 }
 </script>
 
-<script>
+<script src="worker.js?v=51">
 // 页面加载时强制调用 renderTasks
 (function() {
     console.log('🔧 强制调用 renderTasks');

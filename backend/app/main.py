@@ -195,3 +195,11 @@ async def get_deploy_complete():
     if os.path.exists(script_path):
         return FileResponse(script_path, media_type="text/x-shellscript", filename="deploy-complete.sh")
     return {"error": "Deploy script not found"}
+
+@app.get("/files/worker_v{version}.py")
+async def get_worker_versioned(version: str):
+    """提供带版本号的 Worker 代码"""
+    worker_path = "/root/.openclaw/workspace/projects/trading-system-release/worker/worker.py"
+    if os.path.exists(worker_path):
+        return FileResponse(worker_path, media_type="text/x-python", filename=f"worker_v{version}.py")
+    return {"error": "Worker file not found"}

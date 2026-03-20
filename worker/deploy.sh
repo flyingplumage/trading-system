@@ -8,9 +8,10 @@ echo "========================"
 docker stop iris-worker 2>/dev/null || true
 docker rm iris-worker 2>/dev/null || true
 
-# 下载代码
+# 下载代码（带版本号）
 mkdir -p ~/iris-worker-data
-curl -sSL http://162.14.115.79:5000/files/worker.py -o ~/iris-worker-data/worker.py
+VERSION=$(date +%s)  # 使用时间戳作为版本号
+curl -sSL "http://162.14.115.79:5000/files/worker.py?v=$VERSION" -o ~/iris-worker-data/worker.py
 
 # 构建
 cd ~/iris-worker-data
