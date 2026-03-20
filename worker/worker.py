@@ -282,6 +282,14 @@ async def upgrade_worker_via_http(version, task_id=None):
                 f.write(resp.text)
             add_log("success", f"✅ Written to {current_file}")
             
+            # 验证写入
+            with open(current_file, "r", encoding='utf-8') as f:
+                written_content = f.read()
+            if "v45" in written_content:
+                add_log("success", "✅ Verification passed: v45 found")
+            else:
+                add_log("error", "❌ Verification failed: v45 not found")
+            
             if task_id and ws_connection:
                 await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": 80, "status": "running"}))
             
