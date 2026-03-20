@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Iris Worker v43 - 优化布局（左侧卡片，右侧日志）"""
+"""Iris Worker v51 - 优化布局（左侧卡片，右侧日志）"""
 from __future__ import unicode_literals
 import os, sys, json, time, threading, subprocess, socket, asyncio, websockets, requests, shutil, platform, psutil
 from pathlib import Path
@@ -52,7 +52,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Iris Worker v43</title>
+    <title>Iris Worker v51</title>
     <style>
         :root{--bg:#0f172a;--card:#1e293b;--text:#f1f5f9;--primary:#667eea;--success:#10b981;--warning:#f59e0b;--error:#ef4444}
         *{margin:0;padding:0;box-sizing:border-box}
@@ -110,7 +110,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
     <div class="container">
         <header>
             <div>
-                <h1>🚀 Iris Worker <span id="version-badge" class="badge badge-info">v40</span></h1>
+                <h1>🚀 Iris Worker <span id="version-badge" class="badge badge-info">v51</span></h1>
                 <div class="subtitle" id="subtitle">Loading...</div>
             </div>
             <div><span id="connection-status" class="badge badge-warning">⏳</span></div>
