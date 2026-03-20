@@ -187,3 +187,11 @@ async def get_deploy_complete():
     if os.path.exists(script_path):
         return FileResponse(script_path, media_type="text/x-shellscript", filename="deploy-complete.sh")
     return {"error": "Deploy script not found"}
+
+@app.get("/files/deploy-complete.sh")
+async def get_deploy_complete():
+    """提供完整部署脚本"""
+    script_path = "/root/.openclaw/workspace/projects/trading-system-release/worker/deploy-complete.sh"
+    if os.path.exists(script_path):
+        return FileResponse(script_path, media_type="text/x-shellscript", filename="deploy-complete.sh")
+    return {"error": "Deploy script not found"}
