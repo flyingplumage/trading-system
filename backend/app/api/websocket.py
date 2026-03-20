@@ -123,7 +123,16 @@ async def send_command(command: dict):
     data = command.get("data", {})
     
     # 创建任务
-    task_id = data.get("task_id", f"{msg_type}_{int(datetime.now().timestamp())}")
+    # 如果是依赖安装且只有一个包，用包名生成 task_id
+    if msg_type == "install_dependencies":
+        packages = data.get("packages", [])
+        if len(packages) == 1:
+            pkg_name = packages[0].replace("-", "_").replace(".", "_")
+            task_id = data.get("task_id", f"install_{pkg_name}_{int(datetime.now().timestamp())}")
+        else:
+            task_id = data.get("task_id", f"{msg_type}_{int(datetime.now().timestamp())}")
+    else:
+        task_id = data.get("task_id", f"{msg_type}_{int(datetime.now().timestamp())}")
     task_manager.create_task(task_id, msg_type, worker_id, data)
     
     message = {"type": msg_type, "data": data, "task_id": task_id}
