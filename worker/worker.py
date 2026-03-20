@@ -274,13 +274,14 @@ async def upgrade_worker_via_http(version, task_id=None):
         
         resp = requests.get(code_url, timeout=60)
         if resp.status_code == 200:
-            # 写入当前文件
-            current_file = __file__
-            add_log("info", f"💾 Writing to {current_file}")
+            # 写入持久化路径
+            written_path = "/data/worker.py"
+            add_log("info", f"💾 Writing to {written_path}")
             
-            with open(current_file, "w", encoding='utf-8') as f:
+            os.makedirs(os.path.dirname(written_path), exist_ok=True)
+            with open(written_path, "w", encoding='utf-8') as f:
                 f.write(resp.text)
-            add_log("success", f"✅ Written to {current_file}")
+            add_log("success", f"✅ Written to {written_path}")
             
             # 验证写入
             with open(current_file, "r", encoding='utf-8') as f:
