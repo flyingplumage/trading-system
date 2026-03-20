@@ -144,11 +144,14 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                     <div class="hw-chart disk"><svg viewBox="0 0 300 50"><polyline id="disk-polyline" points=""></polyline></svg></div>
                 </div>
                 <div class="card">
-                    <h2>📦 依赖</h2>
+                    <h2>📦 依赖安装</h2>
                     <div class="stat-row"><span class="stat-label">进度</span><span id="dep-progress-text">0%</span></div>
                     <div class="progress-bar"><div class="progress-fill warning" id="dep-progress" style="width:0%"></div></div>
                     <div class="stat-row"><span class="stat-label">已安装</span><span id="dep-installed">0/0</span></div>
-                    <div id="install-details"></div>
+                </div>
+                <div class="card" id="deps-detail-card" style="display:none">
+                    <h2>📦 依赖详情</h2>
+                    <div id="deps-list"></div>
                 </div>
                 <div class="card" id="deps-detail-card" style="display:none">
                     <h2>📦 依赖详情</h2>
