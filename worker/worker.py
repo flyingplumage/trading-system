@@ -605,3 +605,49 @@ if (typeof window.origProcessMessage === 'undefined') {
     };
 }
 </script>
+
+<script>
+// 页面加载时强制调用 renderTasks
+(function() {
+    console.log('🔧 强制调用 renderTasks');
+    
+    // 等待 DOM 加载完成
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+    
+    function init() {
+        console.log('🔧 DOM 已加载');
+        
+        // 等待 serverState 初始化
+        setTimeout(function() {
+            if (typeof serverState !== 'undefined' && serverState.server_tasks) {
+                console.log('🔧 serverState.server_tasks:', serverState.server_tasks.length);
+                if (typeof renderTasks === 'function') {
+                    renderTasks(serverState.server_tasks);
+                    console.log('✅ renderTasks 已调用');
+                } else {
+                    console.error('❌ renderTasks 函数不存在');
+                }
+            } else {
+                console.error('❌ serverState 未初始化');
+            }
+        }, 500);
+        
+        // 拦截 WebSocket 消息
+        if (window.ws) {
+            var origOnMessage = window.ws.onmessage;
+            window.ws.onmessage = function(event) {
+                origOnMessage(event);
+                setTimeout(function() {
+                    if (typeof serverState !== 'undefined' && typeof renderTasks === 'function') {
+                        renderTasks(serverState.server_tasks||[]);
+                    }
+                }, 100);
+            };
+        }
+    }
+})();
+</script>
