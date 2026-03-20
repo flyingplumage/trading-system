@@ -313,9 +313,10 @@ async def websocket_client():
                             state_changed.set()
                         elif msg_type == "install_dependencies":
                             packages = data.get("data", {}).get("packages", [])
-                            add_log("info", f"Received command: install {packages}")
+                            task_id = data.get("task_id")
+                            add_log("info", f"📦 Received install command: {packages} (task: {task_id})")
                             current_operation = "installing"
-                            asyncio.create_task(install_dependencies_smart(packages))
+                            asyncio.create_task(install_dependencies_smart(packages, task_id))
                         elif msg_type == "train":
                             train_data = data.get("data", {})
                             add_log("info", f"Received training command: {train_data.get('task_id')}")
@@ -337,16 +338,31 @@ async def websocket_client():
             await asyncio.sleep(5)
         worker_state["uptime_seconds"] = int(time.time() - start)
 
-async def install_dependencies_smart(packages):
+async def install_dependencies_smart(packages, task_id=None):
+    """安装依赖，带进度上报"""
+    global worker_state, ws_connection
     if not packages: return
     worker_state["status"] = "installing"
+    worker_state["current_operation"] = "installing"
+    worker_state["current_task"] = {"task_id": task_id, "type": "install_dependencies"} if task_id else None
     worker_state["dependency_total_packages"] = len(packages)
     worker_state["dependency_installed_count"] = 0
     sources = [("local pip", ""), ("tsinghua", "https://pypi.tuna.tsinghua.edu.cn/simple")]
+    
+    # 上报开始进度
+    if task_id and ws_connection:
+        await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": 0, "status": "running"}))
+    
     for pkg_idx, pkg in enumerate(packages):
         worker_state["dependency_current_package"] = pkg
         installed = False
         pkg_log = {"package": pkg, "sources_tried": [], "success": False, "source": ""}
+        
+        # 上报当前包进度
+        pkg_progress = int((pkg_idx) / len(packages) * 100)
+        if task_id and ws_connection:
+            await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": pkg_progress, "status": "running", "current_package": pkg}))
+        
         for source_name, source_url in sources:
             if installed: break
             worker_state["dependency_source"] = source_name
@@ -369,11 +385,22 @@ async def install_dependencies_smart(packages):
         worker_state["dependency_installed_count"] = pkg_idx + 1
         worker_state["dependency_progress"] = int((pkg_idx + 1) / len(packages) * 100)
         state_changed.set()
+        
+        # 上报包完成进度
+        if task_id and ws_connection:
+            await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": worker_state["dependency_progress"], "status": "running"}))
+    
     worker_state["dependencies_installed"] = True
     worker_state["status"] = "idle"
-    current_operation = None
+    worker_state["current_operation"] = None
+    worker_state["current_task"] = None
     add_log("success", "All dependencies installed")
     state_changed.set()
+    
+    # 上报完成
+    if task_id and ws_connection:
+        await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": 100, "status": "completed"}))
+        await ws_connection.send(json.dumps({"type": "complete", "task_id": task_id, "result": {"installed": len(packages)}}))
 
 async def execute_training(task, ws):
     task_id = task.get("task_id")
