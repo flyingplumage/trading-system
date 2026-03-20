@@ -1,61 +1,88 @@
 #!/bin/bash
-# Iris Worker v3 一键部署（修复版）
+# Iris Worker v55 一键部署脚本 - 使用已有镜像
 
 set -e
 
-SERVER_IP="162.14.115.79"
+SERVER_IP="${SERVER_IP:-162.14.115.79}"
+WS_PORT="${WS_PORT:-5000}"
+WORK_DIR=~/iris-worker-data
 
-echo "🚀 Iris Worker v3 一键部署..."
+echo "============================================================"
+echo "🚀 Iris Worker v55 一键部署"
+echo "============================================================"
 echo ""
 
-# 配置镜像加速
-mkdir -p ~/.docker
-cat > ~/.docker/daemon.json << 'MIRROR'
-{
-  "registry-mirrors": [
-    "https://docker.m.daocloud.io",
-    "https://docker.1panel.live",
-    "https://hub.rat.dev"
-  ]
-}
-MIRROR
+# 1. 停止旧容器
+echo "[1/5] 停止旧容器..."
+docker stop iris-worker 2>/dev/null || true
+docker rm iris-worker 2>/dev/null || true
+echo "✅ 旧容器已清理"
 
-# 清理旧容器
-docker rm -f iris-worker 2>/dev/null || true
-
-# 拉取镜像
-echo "📥 拉取基础镜像..."
-docker pull docker.m.daocloud.io/library/python:3.10-slim 2>/dev/null || \
-docker pull docker.1panel.live/library/python:3.10-slim 2>/dev/null || \
-docker pull hub.rat.dev/library/python:3.10-slim 2>/dev/null
-
-# 创建工作目录
-WORK_DIR=~/iris-worker-v3
+# 2. 创建数据目录
+echo ""
+echo "[2/5] 创建数据目录..."
 mkdir -p "$WORK_DIR"
+
+# 3. 下载 Worker 代码
+echo ""
+echo "[3/5] 下载 Worker 代码..."
+curl -sSL "http://$SERVER_IP:$WS_PORT/files/worker.py" -o "$WORK_DIR/worker.py"
+VERSION=$(grep "Iris Worker v" "$WORK_DIR/worker.py" | head -1 | grep -o "v[0-9]*" || echo "unknown")
+echo "✅ Worker 代码已下载 ($VERSION)"
+
+# 4. 构建镜像（使用已有 python 镜像）
+echo ""
+echo "[4/5] 构建 Docker 镜像..."
+
+# 检查是否有 python 镜像
+if docker images | grep -q python; then
+    PYTHON_IMAGE=$(docker images | grep python | head -1 | awk '{print $1":"$2}')
+    echo "✅ 使用已有镜像：$PYTHON_IMAGE"
+else
+    # 尝试拉取
+    echo "⚠️ 尝试拉取 python 镜像..."
+    docker pull python:3.12-slim || {
+        echo "❌ 无法拉取镜像，请手动执行：docker pull python:3.12-slim"
+        exit 1
+    }
+    PYTHON_IMAGE="python:3.12-slim"
+fi
+
+cat > "$WORK_DIR/Dockerfile" << DOCKERFILE
+FROM $PYTHON_IMAGE
+WORKDIR /app
+RUN pip install --no-cache-dir flask psutil websockets requests
+EXPOSE 8080
+CMD ["python", "/data/worker.py"]
+DOCKERFILE
+
 cd "$WORK_DIR"
+docker build -t iris-worker:v55 . 2>&1 | tail -5
+echo "✅ 镜像构建完成"
 
-# 下载 Worker 代码
-echo "📥 下载 Worker 代码..."
-curl -sSL "http://$SERVER_IP:8888/worker_v4.py" -o worker.py
-
-# 启动容器（先安装依赖，再运行）
-echo "🚀 启动容器..."
+# 5. 启动容器
+echo ""
+echo "[5/5] 启动容器..."
 docker run -d \
   --name iris-worker \
   -p 8080:8080 \
-  -v "$WORK_DIR:/app" \
-  -w /app \
+  -v "$WORK_DIR:/data:rw" \
   -e SERVER_IP="$SERVER_IP" \
-  -e WS_PORT="5000" \
+  -e WS_PORT="$WS_PORT" \
+  -e WORKER_PORT="8080" \
   --restart unless-stopped \
-  docker.m.daocloud.io/library/python:3.10-slim \
-  sh -c "pip install -i https://pypi.tuna.tsinghua.edu.cn/simple flask requests websockets -q && python3 worker.py"
+  iris-worker:v55
 
-sleep 10
+sleep 5
 
+# 验证
 echo ""
+echo "============================================================"
 echo "✅ 部署完成！"
-echo "📊 http://localhost:8080/"
-
-# 自动打开
-open "http://localhost:8080/" 2>/dev/null || true
+echo "============================================================"
+echo ""
+echo "📊 监控面板：http://localhost:8080/"
+echo "📁 数据目录：$WORK_DIR"
+echo "🐳 容器：iris-worker"
+echo ""
+docker logs iris-worker --tail 5
