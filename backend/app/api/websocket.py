@@ -146,3 +146,28 @@ async def send_command(command: dict):
             except:
                 pass
         return {"success": True, "message": f"指令已广播到 {sent_count} 个 Worker", "task_id": task_id}
+
+@router.patch("/ws/tasks/{task_id}")
+async def update_task(task_id: str, update_data: dict):
+    """更新任务状态"""
+    if task_id in task_manager.tasks:
+        task = task_manager.tasks[task_id]
+        if "status" in update_data:
+            task["status"] = update_data["status"]
+        if "error" in update_data:
+            task["error"] = update_data["error"]
+        if "progress" in update_data:
+            task["progress"] = update_data["progress"]
+        task["updated_at"] = datetime.now().isoformat()
+        if update_data.get("status") == "completed":
+            task["completed_at"] = datetime.now().isoformat()
+        return {"success": True, "task": task}
+    return {"success": False, "error": "Task not found"}
+
+@router.delete("/ws/tasks/{task_id}")
+async def delete_task(task_id: str):
+    """删除任务"""
+    if task_id in task_manager.tasks:
+        del task_manager.tasks[task_id]
+        return {"success": True, "message": f"Task {task_id} deleted"}
+    return {"success": False, "error": "Task not found"}

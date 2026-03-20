@@ -339,68 +339,109 @@ async def websocket_client():
         worker_state["uptime_seconds"] = int(time.time() - start)
 
 async def install_dependencies_smart(packages, task_id=None):
-    """安装依赖，带进度上报"""
+    """安装依赖，每个包独立任务 + 国内源 + 服务器下发"""
     global worker_state, ws_connection
-    if not packages: return
+    
+    if not packages:
+        return
+    
     worker_state["status"] = "installing"
     worker_state["current_operation"] = "installing"
     worker_state["current_task"] = {"task_id": task_id, "type": "install_dependencies"} if task_id else None
     worker_state["dependency_total_packages"] = len(packages)
     worker_state["dependency_installed_count"] = 0
-    sources = [("local pip", ""), ("tsinghua", "https://pypi.tuna.tsinghua.edu.cn/simple")]
     
-    # 上报开始进度
+    # 上报开始
     if task_id and ws_connection:
         await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": 0, "status": "running"}))
     
     for pkg_idx, pkg in enumerate(packages):
         worker_state["dependency_current_package"] = pkg
-        installed = False
-        pkg_log = {"package": pkg, "sources_tried": [], "success": False, "source": ""}
+        pkg_installed = False
         
         # 上报当前包进度
         pkg_progress = int((pkg_idx) / len(packages) * 100)
         if task_id and ws_connection:
             await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": pkg_progress, "status": "running", "current_package": pkg}))
         
-        for source_name, source_url in sources:
-            if installed: break
-            worker_state["dependency_source"] = source_name
-            pkg_log["sources_tried"].append(source_name)
-            add_log("info", f"Installing {pkg} ({source_name})...")
-            state_changed.set()
+        add_log("info", f"📦 Installing {pkg}...")
+        state_changed.set()
+        
+        # 尝试 1: 清华源
+        if not pkg_installed:
             try:
-                cmd = ["pip", "install", pkg, "-q"]
-                if source_url: cmd = ["pip", "install", "-i", source_url, pkg, "-q"]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                cmd = ["pip", "install", "-i", "https://pypi.tuna.tsinghua.edu.cn/simple", pkg, "-q", "--timeout", "60"]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
                 if result.returncode == 0:
-                    add_log("success", f"{pkg} installed successfully ({source_name})")
-                    pkg_log["success"] = True
-                    pkg_log["source"] = source_name
-                    installed = True
-                else: add_log("warn", f"{pkg} installation failed ({source_name})")
-            except Exception as e: add_log("error", f"{pkg} exception: {e}")
+                    add_log("success", f"✅ {pkg} installed (tsinghua)")
+                    pkg_installed = True
+                else:
+                    add_log("warn", f"⚠️ {pkg} failed (tsinghua): {result.stderr[:200]}")
+            except Exception as e:
+                add_log("error", f"❌ {pkg} exception (tsinghua): {e}")
+        
+        # 尝试 2: 阿里源
+        if not pkg_installed:
+            try:
+                cmd = ["pip", "install", "-i", "https://mirrors.aliyun.com/pypi/simple/", pkg, "-q", "--timeout", "60"]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+                if result.returncode == 0:
+                    add_log("success", f"✅ {pkg} installed (aliyun)")
+                    pkg_installed = True
+                else:
+                    add_log("warn", f"⚠️ {pkg} failed (aliyun): {result.stderr[:200]}")
+            except Exception as e:
+                add_log("error", f"❌ {pkg} exception (aliyun): {e}")
+        
+        # 尝试 3: 从服务器下发 wheel
+        if not pkg_installed:
+            try:
+                add_log("info", f"📥 Downloading {pkg} from server...")
+                # 从服务端下载 wheel 文件
+                wheel_url = f"{HTTP_BASE}/files/wheels/{pkg}.whl"
+                resp = requests.get(wheel_url, timeout=60)
+                if resp.status_code == 200:
+                    wheel_path = f"/tmp/{pkg}.whl"
+                    with open(wheel_path, 'wb') as f:
+                        f.write(resp.content)
+                    # 安装 wheel
+                    cmd = ["pip", "install", wheel_path, "-q"]
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+                    if result.returncode == 0:
+                        add_log("success", f"✅ {pkg} installed (server wheel)")
+                        pkg_installed = True
+                    else:
+                        add_log("error", f"❌ {pkg} wheel install failed: {result.stderr[:200]}")
+                else:
+                    add_log("error", f"❌ {pkg} wheel not found on server (404)")
+            except Exception as e:
+                add_log("error", f"❌ {pkg} download exception: {e}")
+        
+        # 记录安装结果
+        pkg_log = {"package": pkg, "success": pkg_installed}
         worker_state["dependency_install_log"].append(pkg_log)
-        if len(worker_state["dependency_install_log"]) > 10: worker_state["dependency_install_log"].pop(0)
+        if len(worker_state["dependency_install_log"]) > 10:
+            worker_state["dependency_install_log"].pop(0)
+        
         worker_state["dependency_installed_count"] = pkg_idx + 1
         worker_state["dependency_progress"] = int((pkg_idx + 1) / len(packages) * 100)
         state_changed.set()
         
         # 上报包完成进度
         if task_id and ws_connection:
-            await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": worker_state["dependency_progress"], "status": "running"}))
+            await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": worker_state["dependency_progress"], "status": "running" if not pkg_installed else "completed"}))
     
     worker_state["dependencies_installed"] = True
     worker_state["status"] = "idle"
     worker_state["current_operation"] = None
     worker_state["current_task"] = None
-    add_log("success", "All dependencies installed")
+    add_log("success", "🎉 All dependencies installed")
     state_changed.set()
     
     # 上报完成
     if task_id and ws_connection:
         await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": 100, "status": "completed"}))
-        await ws_connection.send(json.dumps({"type": "complete", "task_id": task_id, "result": {"installed": len(packages)}}))
+        await ws_connection.send(json.dumps({"type": "complete", "task_id": task_id, "result": {"installed": worker_state["dependency_installed_count"]}}))
 
 async def execute_training(task, ws):
     task_id = task.get("task_id")
