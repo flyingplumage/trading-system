@@ -61,3 +61,11 @@ async def health():
 @app.get("/")
 async def root():
     return {"message": "Iris Backend API"}
+
+@app.get("/files/worker.py")
+async def get_worker_file():
+    """提供 Worker 代码下载"""
+    worker_path = "/root/.openclaw/workspace/projects/trading-system-release/worker/worker.py"
+    if os.path.exists(worker_path):
+        return FileResponse(worker_path, media_type="text/x-python", filename="worker.py")
+    return {"error": "Worker file not found"}
