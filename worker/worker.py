@@ -274,13 +274,29 @@ async def upgrade_worker_via_http(version, task_id=None):
         
         resp = requests.get(code_url, timeout=60)
         if resp.status_code == 200:
-            # 写入当前文件
-            current_file = __file__
-            add_log("info", f"💾 Writing to {current_file}")
+            # 尝试写入持久化路径
+            persist_paths = [
+                "/data/worker.py",
+                "/persistent/worker.py", 
+                "/app/worker.py",
+                "/home/worker.py"
+            ]
             
-            with open(current_file, "w", encoding='utf-8') as f:
-                f.write(resp.text)
-            add_log("success", f"✅ Written to {current_file}")
+            written_path = None
+            for pp in persist_paths:
+                try:
+                    os.makedirs(os.path.dirname(pp), exist_ok=True)
+                    with open(pp, "w", encoding='utf-8') as f:
+                        f.write(resp.text)
+                    add_log("success", f"✅ Written to {pp}")
+                    written_path = pp
+                    break
+                except Exception as e:
+                    add_log("warn", f"⚠️ Failed to write {pp}: {e}")
+            
+            if not written_path:
+                add_log("error", "❌ Failed to write to any persist path")
+                return
             
             # 验证写入
             with open(current_file, "r", encoding='utf-8') as f:
