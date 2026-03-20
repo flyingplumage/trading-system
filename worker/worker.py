@@ -313,11 +313,13 @@ async def upgrade_worker_via_http(version, task_id=None):
             
             if task_id and ws_connection:
                 await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": 100, "status": "completed"}))
-                await ws_connection.send(json.dumps({"type": "complete", "task_id": task_id, "result": {"version": version}}))
+                await ws_connection.send(json.dumps({"type": "complete", "task_id": task_id, "result": {"version": version, "path": written_path}}))
             
+            add_log("info", "⏳ Waiting before restart...")
             time.sleep(2)
-            # 使用 os.execv 重启当前进程
-            os.execv(sys.executable, [sys.executable, current_file])
+            add_log("info", f"🔄 Executing: {sys.executable} {written_path}")
+            # 使用 os.execv 重启
+            os.execv(sys.executable, [sys.executable, written_path])
         else:
             add_log("error", f"❌ Download failed: {resp.status_code}")
             if task_id and ws_connection:
