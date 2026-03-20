@@ -581,3 +581,27 @@ if (typeof updateUI === 'function') {
     };
 }
 </script>
+
+<script>
+// 页面加载完成后调用 renderTasks
+window.addEventListener('load', function() {
+    if (typeof renderTasks === 'function' && typeof serverState !== 'undefined') {
+        renderTasks(serverState.server_tasks||[]);
+    }
+});
+
+// 拦截 WebSocket 消息，确保调用 renderTasks
+if (typeof window.origProcessMessage === 'undefined') {
+    window.origProcessMessage = window.processMessage;
+    window.processMessage = function(data) {
+        window.origProcessMessage(data);
+        if (data.type === 'active_tasks' || data.type === 'task_update') {
+            setTimeout(function() {
+                if (typeof renderTasks === 'function' && typeof serverState !== 'undefined') {
+                    renderTasks(serverState.server_tasks||[]);
+                }
+            }, 100);
+        }
+    };
+}
+</script>
