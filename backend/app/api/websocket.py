@@ -28,15 +28,15 @@ async def worker_endpoint(websocket: WebSocket):
                 "type": "ack",
                 "message": "连接成功",
                 "worker_id": worker_id,
-                "server_tasks": task_manager.get_active_tasks()
+                "server_tasks": task_manager.get_all_tasks()
             })
             
-            # 发送当前活动任务
-            active_tasks = task_manager.get_active_tasks()
-            if active_tasks:
+            # 发送所有任务（包括已完成的）
+            all_tasks = task_manager.get_all_tasks()
+            if all_tasks:
                 await websocket.send_json({
                     "type": "active_tasks",
-                    "tasks": active_tasks
+                    "tasks": all_tasks
                 })
             
             while True:
@@ -116,6 +116,8 @@ async def get_stats():
 @router.post("/ws/worker/command")
 async def send_command(command: dict):
     """发送指令到 Worker"""
+    import asyncio
+    
     worker_id = command.get("worker_id")
     msg_type = command.get("type")
     data = command.get("data", {})
@@ -128,7 +130,8 @@ async def send_command(command: dict):
     
     if worker_id and worker_id in task_manager.workers:
         try:
-            await task_manager.workers[worker_id].send(json.dumps(message))
+            ws = task_manager.workers[worker_id]
+            await ws.send_json(message)
             return {"success": True, "message": f"指令已发送到 {worker_id}", "task_id": task_id}
         except Exception as e:
             return {"success": False, "message": f"发送失败：{e}", "task_id": task_id}
@@ -137,7 +140,8 @@ async def send_command(command: dict):
         sent_count = 0
         for wid in list(task_manager.workers.keys()):
             try:
-                await task_manager.workers[wid].send(json.dumps(message))
+                ws = task_manager.workers[wid]
+                await ws.send_json(message)
                 sent_count += 1
             except:
                 pass

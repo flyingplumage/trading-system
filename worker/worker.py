@@ -215,28 +215,65 @@ async def hardware_monitor():
         state_changed.set()
         await asyncio.sleep(2)
 
-async def upgrade_worker_via_http(version):
-    add_log("info", f"Starting upgrade to {version} via HTTP")
+async def upgrade_worker_via_http(version, task_id=None):
+    """升级 Worker 代码"""
+    global worker_state
+    add_log("info", f"📦 Starting upgrade to {version}")
+    worker_state["current_operation"] = "upgrading"
+    worker_state["current_task"] = {"task_id": task_id, "type": "upgrade"} if task_id else None
+    state_changed.set()
+    
     try:
+        # 上报进度 0%
+        if task_id and ws_connection:
+            await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": 0, "status": "running"}))
+        
         code_url = f"{HTTP_BASE}/files/worker.py"
-        add_log("info", f"Downloading from {code_url}...")
+        add_log("info", f"📥 Downloading from {code_url}...")
         state_changed.set()
+        
+        # 上报进度 30%
+        if task_id and ws_connection:
+            await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": 30, "status": "running"}))
+        
         resp = requests.get(code_url, timeout=60)
         if resp.status_code == 200:
+            # 备份旧版本
             if os.path.exists("/app/worker.py"):
                 shutil.copy("/app/worker.py", "/app/worker.py.bak")
-                add_log("info", "Backed up old version")
+                add_log("info", "💾 Backed up old version")
+            
+            # 写入新版本
             with open("/app/worker.py", "w", encoding='utf-8') as f:
                 f.write(resp.text)
-            add_log("success", f"Downloaded {version} successfully")
+            add_log("success", f"✅ Downloaded {version} successfully")
             state_changed.set()
-            add_log("info", "Restarting...")
+            
+            # 上报进度 80%
+            if task_id and ws_connection:
+                await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": 80, "status": "running"}))
+            
+            add_log("info", "🔄 Restarting...")
+            
+            # 上报进度 100%
+            if task_id and ws_connection:
+                await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": 100, "status": "completed"}))
+                await ws_connection.send(json.dumps({"type": "complete", "task_id": task_id, "result": {"version": version}}))
+            
             time.sleep(2)
             os._exit(0)
         else:
-            add_log("error", f"Download failed: {resp.status_code}")
+            add_log("error", f"❌ Download failed: {resp.status_code}")
+            if task_id and ws_connection:
+                await ws_connection.send(json.dumps({"type": "error", "task_id": task_id, "error": f"Download failed: {resp.status_code}"}))
     except Exception as e:
-        add_log("error", f"Upgrade failed: {e}")
+        add_log("error", f"❌ Upgrade failed: {e}")
+        if task_id and ws_connection:
+            await ws_connection.send(json.dumps({"type": "error", "task_id": task_id, "error": str(e)}))
+    finally:
+        worker_state["current_operation"] = None
+        worker_state["current_task"] = None
+        state_changed.set()
 
 async def websocket_client():
     global ws_connection, worker_state, current_operation
@@ -251,6 +288,11 @@ async def websocket_client():
                 worker_state["reconnect_count"] = 0
                 worker_state["worker_id"] = worker_id
                 add_log("info", "WebSocket connected successfully")
+                # 握手后清空旧任务
+                worker_state["server_tasks"] = []
+                add_log("info", "📋 已清空旧任务列表")
+                state_changed.set()
+                
                 await ws.send(json.dumps({"type": "handshake", "worker_id": worker_id, "version": worker_state["worker_version"]}))
                 async for message in ws:
                     worker_state["messages_received"] += 1
@@ -267,6 +309,7 @@ async def websocket_client():
                             state_changed.set()
                         elif msg_type == "active_tasks":
                             worker_state["server_tasks"] = data.get("tasks", [])
+                            add_log("info", f"📋 收到 {len(worker_state['server_tasks'])} 个任务")
                             state_changed.set()
                         elif msg_type == "install_dependencies":
                             packages = data.get("data", {}).get("packages", [])
@@ -281,8 +324,9 @@ async def websocket_client():
                         elif msg_type == "upgrade":
                             upgrade_data = data.get("data", {})
                             version = upgrade_data.get("version", "unknown")
-                            add_log("info", f"Received upgrade command: {version}")
-                            asyncio.create_task(upgrade_worker_via_http(version))
+                            task_id = data.get("task_id")
+                            add_log("info", f"📨 Received upgrade command: {version} (task: {task_id})")
+                            asyncio.create_task(upgrade_worker_via_http(version, task_id))
                     except Exception as e:
                         add_log("error", f"Processing failed: {e}")
         except Exception as e:

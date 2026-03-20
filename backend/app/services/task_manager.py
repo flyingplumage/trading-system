@@ -101,13 +101,15 @@ class TaskManager:
             "type": "task_update",
             "task": task
         }
+        message_str = json.dumps(message)
         
         for worker_id, ws in list(self.workers.items()):
             try:
                 import asyncio
-                asyncio.create_task(ws.send(json.dumps(message)))
-            except:
-                pass
+                # FastAPI WebSocket.send() 需要字符串
+                asyncio.create_task(ws.send(message_str))
+            except Exception as e:
+                print(f"广播失败 {worker_id}: {e}")
     
     def get_all_tasks(self) -> List[dict]:
         """获取所有任务"""

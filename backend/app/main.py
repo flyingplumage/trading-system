@@ -29,6 +29,17 @@ async def get_worker_code():
         return FileResponse(worker_path, media_type="text/x-python", filename="worker.py")
     return {"error": "Worker code not found"}
 
+@app.get("/files/deploy-mac-v31.sh")
+async def get_deploy_script():
+    script_path = "/root/.openclaw/workspace/projects/trading-system-release/worker/deploy-mac-v31.sh"
+    if os.path.exists(script_path):
+        return FileResponse(script_path, media_type="text/x-shellscript", filename="deploy-mac-v31.sh")
+    return {"error": "Deploy script not found"}
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
+
 @app.get("/files/version")
 async def get_version():
     return {
