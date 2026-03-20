@@ -579,7 +579,5 @@ if __name__ == "__main__":
         print(f"HTML template created: {HTML_PATH}")
     threading.Thread(target=lambda: asyncio.run(websocket_client()), daemon=True).start()
     threading.Thread(target=lambda: asyncio.run(hardware_monitor()), daemon=True).start()
-    print(f"Iris Worker v49 started
-WebSocket: {WS_URL}
-Monitor: http://localhost:{WORKER_PORT}/")
+    print(f"Iris Worker v49 started | WebSocket: {WS_URL} | Monitor: http://localhost:{WORKER_PORT}/")
     app.run(host="0.0.0.0", port=WORKER_PORT, debug=False, threaded=True)
