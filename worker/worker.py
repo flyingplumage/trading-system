@@ -20,7 +20,7 @@ worker_state = {
     "dependency_install_log": [],
     "training_progress": 0, "training_loss": 0, "training_epoch": 0, "training_total_epochs": 0,
     "messages_received": 0, "messages_sent": 0, "uptime_seconds": 0, "reconnect_count": 0,
-    "worker_version": "v31",
+    "worker_version": "v39",
     "worker_id": socket.gethostname(),
     "hardware": {"cpu_percent": 0, "memory_percent": 0, "disk_percent": 0},
     "hardware_history": {"cpu": [], "memory": [], "disk": []},
