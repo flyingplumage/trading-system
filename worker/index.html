@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Iris Worker v31</title>
+    <title>Iris Worker v39</title>
     <style>
         :root{--bg:#0f172a;--card:#1e293b;--text:#f1f5f9;--primary:#667eea;--success:#10b981;--warning:#f59e0b;--error:#ef4444}
         *{margin:0;padding:0;box-sizing:border-box}
@@ -120,7 +120,7 @@
         eventSource.addEventListener('message',e=>updateUI(JSON.parse(e.data)));
         function loadInitialData(){fetch('/status').then(r=>r.json()).then(updateUI);fetch('/logs').then(r=>r.json()).then(d=>renderLogs(d.logs));}
         function updateUI(s){
-            document.getElementById('version-badge').textContent=s.worker_version||'v31';
+            document.getElementById('version-badge').textContent=s.worker_version||'v39';
             document.getElementById('subtitle').textContent=(s.worker_id||'')+' • ws://'+(s.worker_id||'');
             document.getElementById('ws-status').innerHTML=s.websocket_connected?'<span class="badge badge-success">✅</span>':'<span class="badge badge-error">❌</span>';
             document.getElementById('uptime').textContent=formatUptime(s.uptime_seconds||0);

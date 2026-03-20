@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Iris Worker v31 - 优化布局（左侧卡片，右侧日志）"""
+"""Iris Worker v39 - 优化布局（左侧卡片，右侧日志）"""
 from __future__ import unicode_literals
 import os, json, time, threading, subprocess, socket, asyncio, websockets, requests, shutil, platform, psutil
 from pathlib import Path
@@ -52,7 +52,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Iris Worker v31</title>
+    <title>Iris Worker v39</title>
     <style>
         :root{--bg:#0f172a;--card:#1e293b;--text:#f1f5f9;--primary:#667eea;--success:#10b981;--warning:#f59e0b;--error:#ef4444}
         *{margin:0;padding:0;box-sizing:border-box}
@@ -169,7 +169,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         eventSource.addEventListener('message',e=>updateUI(JSON.parse(e.data)));
         function loadInitialData(){fetch('/status').then(r=>r.json()).then(updateUI);fetch('/logs').then(r=>r.json()).then(d=>renderLogs(d.logs));}
         function updateUI(s){
-            document.getElementById('version-badge').textContent=s.worker_version||'v31';
+            document.getElementById('version-badge').textContent=s.worker_version||'v39';
             document.getElementById('subtitle').textContent=(s.worker_id||'')+' • ws://'+(s.worker_id||'');
             document.getElementById('ws-status').innerHTML=s.websocket_connected?'<span class="badge badge-success">✅</span>':'<span class="badge badge-error">❌</span>';
             document.getElementById('uptime').textContent=formatUptime(s.uptime_seconds||0);
@@ -541,5 +541,5 @@ if __name__ == "__main__":
     print(f"HTML template created: {HTML_PATH}")
     threading.Thread(target=lambda: asyncio.run(websocket_client()), daemon=True).start()
     threading.Thread(target=lambda: asyncio.run(hardware_monitor()), daemon=True).start()
-    print(f"Iris Worker v31 started\nWebSocket: {WS_URL}\nMonitor: http://localhost:{WORKER_PORT}/")
+    print(f"Iris Worker v39 started\nWebSocket: {WS_URL}\nMonitor: http://localhost:{WORKER_PORT}/")
     app.run(host="0.0.0.0", port=WORKER_PORT, debug=False, threaded=True)
