@@ -97,17 +97,18 @@ class TaskManager:
     
     def broadcast_task_update(self, task: dict):
         """广播任务更新给所有 Worker"""
+        import asyncio
+        from starlette.websockets import WebSocket
+        
         message = {
             "type": "task_update",
             "task": task
         }
-        message_str = json.dumps(message)
         
         for worker_id, ws in list(self.workers.items()):
             try:
-                import asyncio
-                # FastAPI WebSocket.send() 需要字符串
-                asyncio.create_task(ws.send(message_str))
+                # 使用 send_json 发送 JSON 消息
+                asyncio.create_task(ws.send_json(message))
             except Exception as e:
                 print(f"广播失败 {worker_id}: {e}")
     
