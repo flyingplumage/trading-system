@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Iris Worker v43 - 优化布局（左侧卡片，右侧日志）"""
 from __future__ import unicode_literals
-import os, json, time, threading, subprocess, socket, asyncio, websockets, requests, shutil, platform, psutil
+import os, sys, json, time, threading, subprocess, socket, asyncio, websockets, requests, shutil, platform, psutil
 from pathlib import Path
 from datetime import datetime
 from flask import Flask, jsonify, Response, send_file
