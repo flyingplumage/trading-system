@@ -196,7 +196,22 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
 </html>'''
 
 def get_hardware_info():
-    return {"cpu_percent": round(psutil.cpu_percent(interval=0.1), 1), "memory_percent": round(psutil.virtual_memory().percent, 1), "disk_percent": round(psutil.disk_usage('/').percent, 1)}
+    """获取硬件信息 - 使用 psutil"""
+    try:
+        cpu_percent = round(psutil.cpu_percent(interval=0.5), 1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        return {
+            "cpu_percent": cpu_percent,
+            "memory_percent": round(memory.percent, 1),
+            "memory_total": round(memory.total / 1024 / 1024 / 1024, 2),
+            "memory_used": round(memory.used / 1024 / 1024 / 1024, 2),
+            "disk_percent": round(disk.percent, 1),
+            "disk_total": round(disk.total / 1024 / 1024 / 1024, 2),
+            "disk_used": round(disk.used / 1024 / 1024 / 1024, 2)
+        }
+    except Exception as e:
+        return {"cpu_percent": 0, "memory_percent": 0, "disk_percent": 0, "error": str(e)}
 
 def add_log(level, message):
     message_log.append({"timestamp": datetime.now().isoformat(), "level": level, "message": message})
@@ -339,7 +354,7 @@ async def websocket_client():
         worker_state["uptime_seconds"] = int(time.time() - start)
 
 async def install_dependencies_smart(packages, task_id=None):
-    """安装依赖，每个包独立任务 + 国内源 + 服务器下发"""
+    """安装依赖 - 本地 pip 国内源优先，服务器下发备选"""
     global worker_state, ws_connection
     
     if not packages:
@@ -367,53 +382,64 @@ async def install_dependencies_smart(packages, task_id=None):
         add_log("info", f"📦 Installing {pkg}...")
         state_changed.set()
         
-        # 尝试 1: 清华源
+        # 尝试 1: 清华源 (默认)
         if not pkg_installed:
             try:
-                cmd = ["pip", "install", "-i", "https://pypi.tuna.tsinghua.edu.cn/simple", pkg, "-q", "--timeout", "60"]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+                cmd = ["pip", "install", "-i", "https://pypi.tuna.tsinghua.edu.cn/simple", pkg, "-q", "--timeout", "120"]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
                 if result.returncode == 0:
                     add_log("success", f"✅ {pkg} installed (tsinghua)")
                     pkg_installed = True
                 else:
-                    add_log("warn", f"⚠️ {pkg} failed (tsinghua): {result.stderr[:200]}")
+                    add_log("warn", f"⚠️ {pkg} failed (tsinghua): {result.stderr[:300]}")
             except Exception as e:
                 add_log("error", f"❌ {pkg} exception (tsinghua): {e}")
         
         # 尝试 2: 阿里源
         if not pkg_installed:
             try:
-                cmd = ["pip", "install", "-i", "https://mirrors.aliyun.com/pypi/simple/", pkg, "-q", "--timeout", "60"]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+                cmd = ["pip", "install", "-i", "https://mirrors.aliyun.com/pypi/simple/", pkg, "-q", "--timeout", "120"]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
                 if result.returncode == 0:
                     add_log("success", f"✅ {pkg} installed (aliyun)")
                     pkg_installed = True
                 else:
-                    add_log("warn", f"⚠️ {pkg} failed (aliyun): {result.stderr[:200]}")
+                    add_log("warn", f"⚠️ {pkg} failed (aliyun): {result.stderr[:300]}")
             except Exception as e:
                 add_log("error", f"❌ {pkg} exception (aliyun): {e}")
         
-        # 尝试 3: 从服务器下发 wheel
+        # 尝试 3: 中科大源
+        if not pkg_installed:
+            try:
+                cmd = ["pip", "install", "-i", "https://pypi.mirrors.ustc.edu.cn/simple/", pkg, "-q", "--timeout", "120"]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+                if result.returncode == 0:
+                    add_log("success", f"✅ {pkg} installed (ustc)")
+                    pkg_installed = True
+                else:
+                    add_log("warn", f"⚠️ {pkg} failed (ustc): {result.stderr[:300]}")
+            except Exception as e:
+                add_log("error", f"❌ {pkg} exception (ustc): {e}")
+        
+        # 尝试 4: 从服务器下发 wheel (最后备选)
         if not pkg_installed:
             try:
                 add_log("info", f"📥 Downloading {pkg} from server...")
-                # 从服务端下载 wheel 文件
                 wheel_url = f"{HTTP_BASE}/files/wheels/{pkg}.whl"
-                resp = requests.get(wheel_url, timeout=60)
+                resp = requests.get(wheel_url, timeout=120)
                 if resp.status_code == 200:
                     wheel_path = f"/tmp/{pkg}.whl"
                     with open(wheel_path, 'wb') as f:
                         f.write(resp.content)
-                    # 安装 wheel
                     cmd = ["pip", "install", wheel_path, "-q"]
-                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
                     if result.returncode == 0:
                         add_log("success", f"✅ {pkg} installed (server wheel)")
                         pkg_installed = True
                     else:
-                        add_log("error", f"❌ {pkg} wheel install failed: {result.stderr[:200]}")
+                        add_log("error", f"❌ {pkg} wheel install failed: {result.stderr[:300]}")
                 else:
-                    add_log("error", f"❌ {pkg} wheel not found on server (404)")
+                    add_log("warn", f"⚠️ {pkg} wheel not found on server (404)")
             except Exception as e:
                 add_log("error", f"❌ {pkg} download exception: {e}")
         
@@ -429,7 +455,8 @@ async def install_dependencies_smart(packages, task_id=None):
         
         # 上报包完成进度
         if task_id and ws_connection:
-            await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": worker_state["dependency_progress"], "status": "running" if not pkg_installed else "completed"}))
+            final_status = "completed" if pkg_installed else "running"
+            await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": worker_state["dependency_progress"], "status": final_status}))
     
     worker_state["dependencies_installed"] = True
     worker_state["status"] = "idle"
