@@ -254,58 +254,46 @@ async def hardware_monitor():
         await asyncio.sleep(2)
 
 async def upgrade_worker_via_http(version, task_id=None):
-    """升级 Worker 代码 - 写入持久化位置"""
-    global worker_state
+    """升级 Worker 代码 - 写入并重启"""
+    global worker_state, ws_connection
     add_log("info", f"📦 Starting upgrade to {version}")
     worker_state["current_operation"] = "upgrading"
     worker_state["current_task"] = {"task_id": task_id, "type": "upgrade"} if task_id else None
     state_changed.set()
     
     try:
-        # 上报进度 0%
+        # 上报进度
         if task_id and ws_connection:
             await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": 0, "status": "running"}))
         
         code_url = f"{HTTP_BASE}/files/worker.py"
         add_log("info", f"📥 Downloading from {code_url}...")
-        state_changed.set()
         
-        # 上报进度 30%
         if task_id and ws_connection:
             await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": 30, "status": "running"}))
         
         resp = requests.get(code_url, timeout=60)
         if resp.status_code == 200:
-            # Docker Desktop 持久化路径
-            persist_path = "/app/worker.py"
+            # 写入当前文件
+            current_file = __file__
+            add_log("info", f"💾 Writing to {current_file}")
             
-            # 备份旧版本
-            if os.path.exists(persist_path):
-                shutil.copy(persist_path, persist_path + ".bak")
-                add_log("info", f"💾 Backed up {persist_path}")
-            
-            # 写入新版本
-            with open(persist_path, "w", encoding='utf-8') as f:
+            with open(current_file, "w", encoding='utf-8') as f:
                 f.write(resp.text)
-            add_log("success", f"✅ Written to {persist_path}")
+            add_log("success", f"✅ Written to {current_file}")
             
-            state_changed.set()
-            
-            # 上报进度 80%
             if task_id and ws_connection:
                 await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": 80, "status": "running"}))
             
-            add_log("info", "🔄 Restarting worker process...")
+            add_log("info", "🔄 Restarting...")
             
-            # 上报进度 100%
             if task_id and ws_connection:
                 await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": 100, "status": "completed"}))
-                await ws_connection.send(json.dumps({"type": "complete", "task_id": task_id, "result": {"version": version, "path": persist_path}}))
+                await ws_connection.send(json.dumps({"type": "complete", "task_id": task_id, "result": {"version": version}}))
             
-            # 重启进程（不是容器）
             time.sleep(2)
-            add_log("info", "🔄 Process restarting...")
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+            # 使用 os.execv 重启当前进程
+            os.execv(sys.executable, [sys.executable, current_file])
         else:
             add_log("error", f"❌ Download failed: {resp.status_code}")
             if task_id and ws_connection:
