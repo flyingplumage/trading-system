@@ -1,6 +1,7 @@
 """
 真实 PPO 训练服务
 基于 Stable Baselines3
+支持 SQLite + DuckDB 混合存储
 """
 
 import os
@@ -23,9 +24,16 @@ from stable_baselines3.common.evaluation import evaluate_policy
 from app.env import get_env_class, list_envs
 from app.db import database
 
+# DuckDB 分析存储（可选）
+try:
+    from app.db.duckdb_analytics import init_db as duckdb_init, insert_metrics as duckdb_insert
+    DUCKDB_AVAILABLE = True
+except ImportError:
+    DUCKDB_AVAILABLE = False
+
 
 class TrainingCallback(BaseCallback):
-    """训练回调 - 实时上报进度"""
+    """训练回调 - 实时上报进度（支持 SQLite + DuckDB 双写）"""
     
     def __init__(self, exp_id: str, task_id: int, total_steps: int, eval_freq: int = 1000):
         super().__init__()
@@ -35,6 +43,15 @@ class TrainingCallback(BaseCallback):
         self.eval_freq = eval_freq
         self.start_time = time.time()
         self.best_reward = -float('inf')
+        self.metrics_buffer = []  # DuckDB 批量写入缓冲
+        
+        # 初始化 DuckDB
+        if DUCKDB_AVAILABLE:
+            try:
+                duckdb_init()
+                print("[Trainer] DuckDB 分析库已初始化")
+            except Exception as e:
+                print(f"[Trainer] DuckDB 初始化失败：{e}，将仅使用 SQLite")
     
     def _on_step(self) -> bool:
         # 每 eval_freq 步上报一次
@@ -54,7 +71,7 @@ class TrainingCallback(BaseCallback):
                 cash = 0
                 position = 0
             
-            # 更新数据库
+            # 构建指标数据
             metrics = {
                 'step': int(self.n_calls),
                 'progress': progress,
@@ -65,13 +82,36 @@ class TrainingCallback(BaseCallback):
                 'reward': float(self.locals.get('rewards', [0])[-1]) if 'rewards' in self.locals else 0
             }
             
+            # 更新 SQLite（元数据）
             database.update_experiment(self.exp_id, metrics=json.dumps(metrics))
-            
-            # 更新训练任务
             database.update_training_task(
                 self.task_id,
                 result=json.dumps(metrics)
             )
+            
+            # DuckDB 双写（分析数据）
+            if DUCKDB_AVAILABLE:
+                try:
+                    # 添加到缓冲
+                    duckdb_metric = {
+                        'id': int(time.time() * 1000) + self.n_calls,  # 唯一 ID
+                        'experiment_id': self.exp_id,
+                        'step': int(self.n_calls),
+                        'progress': progress,
+                        'reward': metrics['reward'],
+                        'portfolio_value': portfolio_value,
+                        'cash': cash,
+                        'position': position,
+                        'created_at': datetime.now()
+                    }
+                    self.metrics_buffer.append(duckdb_metric)
+                    
+                    # 每 10 次上报批量写入一次
+                    if len(self.metrics_buffer) >= 10:
+                        duckdb_insert(self.metrics_buffer)
+                        self.metrics_buffer = []
+                except Exception as e:
+                    print(f"[Trainer] DuckDB 写入失败：{e}，继续使用 SQLite")
             
             print(f"[Trainer] 进度：{progress:.1f}%, 步数：{self.n_calls}/{self.total_steps}, "
                   f"组合价值：{portfolio_value:.2f}, 耗时：{elapsed:.1f}分钟")
@@ -86,6 +126,15 @@ class TrainingCallback(BaseCallback):
             'completed': True
         }
         database.update_experiment(self.exp_id, metrics=json.dumps(metrics), status='completed')
+        
+        # 刷新 DuckDB 缓冲区
+        if DUCKDB_AVAILABLE and self.metrics_buffer:
+            try:
+                duckdb_insert(self.metrics_buffer)
+                print(f"[Trainer] DuckDB 缓冲区已刷新 ({len(self.metrics_buffer)} 条)")
+            except Exception as e:
+                print(f"[Trainer] DuckDB 刷新失败：{e}")
+        
         print(f"[Trainer] 训练完成，总步数：{self.total_steps}")
 
 
@@ -203,6 +252,8 @@ class PPOTrainer:
             database.update_training_task(task_id, status='completed')
             
             print(f"[Trainer] 训练完成 - 策略：{strategy}")
+            
+            return str(model_path)
             
         except Exception as e:
             print(f"[Trainer] 训练失败：{e}")

@@ -16,6 +16,7 @@ from typing import Optional, List, Dict, Any
 import pandas as pd
 import requests
 import yaml
+from .checkpoint import CheckpointManager
 
 
 class TushareService:
@@ -55,6 +56,9 @@ class TushareService:
         self.last_request_time = 0
         self.min_request_interval = 60  # 60 秒（避免限流）
         self.api_call_count = 0
+        
+        # 检查点管理器
+        self.checkpoint = CheckpointManager()
         
         print(f"[Tushare] 服务初始化完成，数据目录：{self.base_dir}")
     
@@ -130,9 +134,13 @@ class TushareService:
         
         result = self._request("stock_basic", params)
         
-        # 解析数据
-        fields = result['result']['fields']
-        items = result['result']['items']
+        # 解析数据 (Tushare 返回 data 而非 result)
+        data = result.get('data') or result.get('result')
+        if not data:
+            raise Exception(f"Tushare API 返回数据格式异常：{result}")
+        
+        fields = data['fields']
+        items = data['items']
         
         df = pd.DataFrame(items, columns=fields)
         
@@ -169,9 +177,13 @@ class TushareService:
         
         result = self._request("daily", params)
         
-        # 解析数据
-        fields = result['result']['fields']
-        items = result['result']['items']
+        # 解析数据 (Tushare 返回 data 而非 result)
+        data = result.get('data') or result.get('result')
+        if not data:
+            raise Exception(f"Tushare API 返回数据格式异常：{result}")
+        
+        fields = data['fields']
+        items = data['items']
         
         if not items:
             return pd.DataFrame()
@@ -221,9 +233,13 @@ class TushareService:
         try:
             result = self._request("stk_min", params)
             
-            # 解析数据
-            fields = result['result']['fields']
-            items = result['result']['items']
+            # 解析数据 (Tushare 返回 data 而非 result)
+            data = result.get('data') or result.get('result')
+            if not data:
+                raise Exception(f"Tushare API 返回数据格式异常：{result}")
+            
+            fields = data['fields']
+            items = data['items']
             
             if not items:
                 return pd.DataFrame()
@@ -323,17 +339,108 @@ class TushareService:
             print(f"[Tushare] 读取最后更新日期失败：{e}")
             return None
     
+    def detect_gaps(self, ts_code: str, threshold_days: int = 3) -> List[Dict]:
+        """
+        检测数据缺口
+        
+        Args:
+            ts_code: 股票代码
+            threshold_days: 缺口阈值（默认 3 天）
+        
+        Returns:
+            缺口列表 [{'start': '20260101', 'end': '20260105', 'days': 3}, ...]
+        """
+        feature_file = self.features_dir / f"{ts_code.replace('.', '_')}.parquet"
+        
+        if not feature_file.exists():
+            return []
+        
+        try:
+            df = pd.read_parquet(feature_file)
+            if df.empty:
+                return []
+            
+            # 确保日期格式
+            if not pd.api.types.is_datetime64_any_dtype(df['trade_date']):
+                df['trade_date'] = pd.to_datetime(df['trade_date'])
+            
+            # 排序
+            df_sorted = df.sort_values('trade_date').reset_index(drop=True)
+            
+            # 计算日期差
+            date_diff = df_sorted['trade_date'].diff().dt.days
+            
+            # 找出缺口
+            gaps = []
+            for i in range(1, len(df_sorted)):
+                diff = date_diff.iloc[i]
+                if pd.notna(diff) and diff > threshold_days:
+                    gap_start = df_sorted.iloc[i-1]['trade_date'] + timedelta(days=1)
+                    gap_end = df_sorted.iloc[i]['trade_date'] - timedelta(days=1)
+                    gaps.append({
+                        'start': gap_start.strftime('%Y%m%d'),
+                        'end': gap_end.strftime('%Y%m%d'),
+                        'days': int(diff - 1)
+                    })
+            
+            if gaps:
+                print(f"[Tushare] {ts_code}: 发现 {len(gaps)} 个缺口")
+            
+            return gaps
+        
+        except Exception as e:
+            print(f"[Tushare] 检测缺口失败：{e}")
+            return []
+    
+    def get_local_data_range(self, ts_code: str) -> Dict:
+        """
+        获取本地数据范围
+        
+        Returns:
+            {'start': '20260101', 'end': '20260320', 'total_days': 50}
+        """
+        feature_file = self.features_dir / f"{ts_code.replace('.', '_')}.parquet"
+        
+        if not feature_file.exists():
+            return {'start': None, 'end': None, 'total_days': 0}
+        
+        try:
+            df = pd.read_parquet(feature_file)
+            if df.empty:
+                return {'start': None, 'end': None, 'total_days': 0}
+            
+            # 确保日期格式
+            if not pd.api.types.is_datetime64_any_dtype(df['trade_date']):
+                df['trade_date'] = pd.to_datetime(df['trade_date'])
+            
+            start_date = df['trade_date'].min()
+            end_date = df['trade_date'].max()
+            total_days = (end_date - start_date).days + 1
+            
+            return {
+                'start': start_date.strftime('%Y%m%d'),
+                'end': end_date.strftime('%Y%m%d'),
+                'total_days': total_days,
+                'trade_days': len(df)
+            }
+        
+        except Exception as e:
+            print(f"[Tushare] 获取本地数据范围失败：{e}")
+            return {'start': None, 'end': None, 'total_days': 0}
+    
     def incremental_update(
         self,
         ts_code: str,
-        end_date: str = None
+        end_date: str = None,
+        fill_gaps: bool = True
     ) -> int:
         """
-        增量更新股票数据（日线）
+        增量更新股票数据（日线）- 带缺口检测
         
         Args:
             ts_code: 股票代码
             end_date: 结束日期（默认今天）
+            fill_gaps: 是否自动填补缺口
         
         Returns:
             新增记录数
@@ -341,7 +448,16 @@ class TushareService:
         if end_date is None:
             end_date = datetime.now().strftime('%Y%m%d')
         
-        # 获取最后更新日期
+        # 1. 检测并补充缺口（可选）
+        if fill_gaps:
+            gaps = self.detect_gaps(ts_code)
+            if gaps:
+                print(f"[Tushare] {ts_code}: 发现 {len(gaps)} 个缺口，开始补充...")
+                for i, gap in enumerate(gaps):
+                    print(f"[Tushare] 补充缺口 {i+1}/{len(gaps)}: {gap['start']} - {gap['end']}")
+                    self._download_and_merge(ts_code, gap['start'], gap['end'])
+        
+        # 2. 获取最后更新日期
         last_date = self.get_last_update_date(ts_code)
         
         if last_date:
@@ -353,6 +469,26 @@ class TushareService:
             start_date = (datetime.now() - timedelta(days=365)).strftime('%Y%m%d')
             print(f"[Tushare] 全量更新：{ts_code}，从 {start_date} 到 {end_date}")
         
+        # 3. 检查是否需要更新
+        if start_date > end_date:
+            print(f"[Tushare] 数据已是最新：{ts_code}")
+            return 0
+        
+        # 4. 获取日线数据并合并
+        return self._download_and_merge(ts_code, start_date, end_date)
+    
+    def _download_and_merge(self, ts_code: str, start_date: str, end_date: str) -> int:
+        """
+        下载数据并合并到本地文件
+        
+        Args:
+            ts_code: 股票代码
+            start_date: 开始日期
+            end_date: 结束日期
+        
+        Returns:
+            总记录数
+        """
         # 获取日线数据
         df = self.get_daily_data(ts_code, start_date, end_date)
         

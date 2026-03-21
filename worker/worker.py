@@ -257,7 +257,7 @@ async def hardware_monitor():
         await asyncio.sleep(2)
 
 async def upgrade_worker_via_http(version, task_id=None):
-    """升级 Worker 代码 - 写入并重启"""
+    """升级 Worker 代码 - 写入并重启 (带下载进度上报)"""
     global worker_state, ws_connection
     add_log("info", f"📦 Starting upgrade to {version}")
     worker_state["current_operation"] = "upgrading"
@@ -269,14 +269,72 @@ async def upgrade_worker_via_http(version, task_id=None):
         if task_id and ws_connection:
             await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": 0, "status": "running"}))
         
-        code_url = f"{HTTP_BASE}/files/worker.py"
+        code_url = f"{HTTP_BASE}/files/worker.py?v={int(time.time())}"  # 防缓存
         add_log("info", f"📥 Downloading from {code_url}...")
         
-        if task_id and ws_connection:
-            await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": 30, "status": "running"}))
-        
-        resp = requests.get(code_url, timeout=60)
+        # 带进度上报的下载
+        resp = requests.get(code_url, timeout=120, stream=True)
         if resp.status_code == 200:
+            total = int(resp.headers.get('Content-Length', 0))
+            downloaded = 0
+            
+            # 写入临时文件
+            temp_path = "/data/worker.py.tmp"
+            os.makedirs(os.path.dirname(temp_path), exist_ok=True)
+            
+            with open(temp_path, 'wb') as f:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    # 上报下载进度 (0-50%)
+                    if total > 0 and task_id and ws_connection:
+                        download_progress = int((downloaded / total) * 50)
+                        await ws_connection.send(json.dumps({
+                            "type": "progress",
+                            "task_id": task_id,
+                            "progress": download_progress,
+                            "status": "running",
+                            "extra": {
+                                "download_mb": round(downloaded / 1024 / 1024, 2),
+                                "total_mb": round(total / 1024 / 1024, 2)
+                            }
+                        }))
+            
+            add_log("success", f"✅ Downloaded {round(downloaded / 1024 / 1024, 2)}MB")
+            
+            # 移动到目标路径
+            written_path = "/data/worker.py"
+            shutil.move(temp_path, written_path)
+            add_log("info", f"💾 Written to {written_path}")
+            
+            # 上报 50% - 下载完成
+            if task_id and ws_connection:
+                await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": 50, "status": "running"}))
+            
+            # 验证写入
+            with open(written_path, "r", encoding='utf-8') as f:
+                written_content = f.read()
+            if version in written_content or "v" in written_content:
+                add_log("success", f"✅ Verification passed: {version} found")
+            else:
+                add_log("warn", f"⚠️ Verification warning: version string not found")
+            
+            # 上报 80% - 验证完成
+            if task_id and ws_connection:
+                await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": 80, "status": "running"}))
+            
+            add_log("info", "🔄 Restarting...")
+            
+            if task_id and ws_connection:
+                await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": 100, "status": "completed"}))
+                await ws_connection.send(json.dumps({"type": "complete", "task_id": task_id, "result": {"version": version, "path": written_path, "downloaded_mb": round(downloaded / 1024 / 1024, 2)}}))
+            
+            add_log("info", "⏳ Waiting before restart...")
+            time.sleep(2)
+            add_log("info", f"🔄 Executing: {sys.executable} {written_path}")
+            # 使用 os.execv 重启
+            os.execv(sys.executable, [sys.executable, written_path])
+        else:
             # 写入持久化路径
             written_path = "/data/worker.py"
             add_log("info", f"💾 Writing to {written_path}")
@@ -358,11 +416,19 @@ async def websocket_client():
                             add_log("info", f"📋 收到 {len(worker_state['server_tasks'])} 个任务")
                             state_changed.set()
                         elif msg_type == "install_dependencies":
+                            # 旧的批量安装指令，兼容用
                             packages = data.get("data", {}).get("packages", [])
                             task_id = data.get("task_id")
-                            add_log("info", f"📦 Received install command: {packages} (task: {task_id})")
+                            add_log("info", f"📦 Received batch install command: {packages} (task: {task_id})")
                             current_operation = "installing"
                             asyncio.create_task(install_dependencies_smart(packages, task_id))
+                        elif msg_type == "install_single":
+                            # 新的单个包安装指令
+                            package = data.get("data", {}).get("package", "")
+                            task_id = data.get("task_id")
+                            add_log("info", f"📦 Received single install command: {package} (task: {task_id})")
+                            current_operation = "installing"
+                            asyncio.create_task(install_single_package(package, task_id))
                         elif msg_type == "train":
                             train_data = data.get("data", {})
                             add_log("info", f"Received training command: {train_data.get('task_id')}")
@@ -384,8 +450,234 @@ async def websocket_client():
             await asyncio.sleep(5)
         worker_state["uptime_seconds"] = int(time.time() - start)
 
+async def install_single_package(package: str, task_id: str = None):
+    """安装单个依赖包 - 带详细进度上报"""
+    global worker_state, ws_connection
+    
+    worker_state["status"] = "installing"
+    worker_state["current_operation"] = "installing"
+    worker_state["current_task"] = {"task_id": task_id, "type": "install_single"} if task_id else None
+    worker_state["dependency_current_package"] = package
+    
+    add_log("info", f"📦 开始安装 {package}")
+    state_changed.set()
+    
+    # 上报开始
+    if task_id and ws_connection:
+        await ws_connection.send(json.dumps({
+            "type": "progress",
+            "task_id": task_id,
+            "progress": 0,
+            "status": "running",
+            "current_package": package
+        }))
+    
+    pkg_installed = False
+    install_source = ""
+    
+    # 尝试 1: 清华源
+    if not pkg_installed:
+        add_log("info", f"⏳ 尝试清华源安装 {package}...")
+        if task_id and ws_connection:
+            await ws_connection.send(json.dumps({
+                "type": "log",
+                "level": "info",
+                "message": f"⏳ 清华源安装中..."
+            }))
+        try:
+            cmd = ["pip", "install", "-i", "https://pypi.tuna.tsinghua.edu.cn/simple", package, "-v", "--timeout", "120"]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+            if result.returncode == 0:
+                add_log("success", f"✅ {package} 安装成功 (清华源)")
+                pkg_installed = True
+                install_source = "tsinghua"
+            else:
+                add_log("warn", f"⚠️ {package} 清华源失败：{result.stderr[:200]}")
+        except subprocess.TimeoutExpired:
+            add_log("error", f"❌ {package} 清华源超时")
+        except Exception as e:
+            add_log("error", f"❌ {package} 清华源异常：{e}")
+    
+    # 上报 25% 进度
+    if task_id and ws_connection:
+        await ws_connection.send(json.dumps({
+            "type": "progress",
+            "task_id": task_id,
+            "progress": 25,
+            "status": "running"
+        }))
+    
+    # 尝试 2: 阿里源
+    if not pkg_installed:
+        add_log("info", f"⏳ 尝试阿里源安装 {package}...")
+        if task_id and ws_connection:
+            await ws_connection.send(json.dumps({
+                "type": "log",
+                "level": "info",
+                "message": f"⏳ 阿里源安装中..."
+            }))
+        try:
+            cmd = ["pip", "install", "-i", "https://mirrors.aliyun.com/pypi/simple/", package, "-v", "--timeout", "120"]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+            if result.returncode == 0:
+                add_log("success", f"✅ {package} 安装成功 (阿里源)")
+                pkg_installed = True
+                install_source = "aliyun"
+            else:
+                add_log("warn", f"⚠️ {package} 阿里源失败：{result.stderr[:200]}")
+        except subprocess.TimeoutExpired:
+            add_log("error", f"❌ {package} 阿里源超时")
+        except Exception as e:
+            add_log("error", f"❌ {package} 阿里源异常：{e}")
+    
+    # 上报 50% 进度
+    if task_id and ws_connection:
+        await ws_connection.send(json.dumps({
+            "type": "progress",
+            "task_id": task_id,
+            "progress": 50,
+            "status": "running"
+        }))
+    
+    # 尝试 3: 中科大源
+    if not pkg_installed:
+        add_log("info", f"⏳ 尝试中科大源安装 {package}...")
+        if task_id and ws_connection:
+            await ws_connection.send(json.dumps({
+                "type": "log",
+                "level": "info",
+                "message": f"⏳ 中科大源安装中..."
+            }))
+        try:
+            cmd = ["pip", "install", "-i", "https://pypi.mirrors.ustc.edu.cn/simple/", package, "-v", "--timeout", "120"]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+            if result.returncode == 0:
+                add_log("success", f"✅ {package} 安装成功 (中科大源)")
+                pkg_installed = True
+                install_source = "ustc"
+            else:
+                add_log("warn", f"⚠️ {package} 中科大源失败：{result.stderr[:200]}")
+        except subprocess.TimeoutExpired:
+            add_log("error", f"❌ {package} 中科大源超时")
+        except Exception as e:
+            add_log("error", f"❌ {package} 中科大源异常：{e}")
+    
+    # 上报 75% 进度
+    if task_id and ws_connection:
+        await ws_connection.send(json.dumps({
+            "type": "progress",
+            "task_id": task_id,
+            "progress": 75,
+            "status": "running"
+        }))
+    
+    # 尝试 4: 服务器 wheel 下发
+    if not pkg_installed:
+        add_log("info", f"⏳ 尝试服务器 wheel 安装 {package}...")
+        if task_id and ws_connection:
+            await ws_connection.send(json.dumps({
+                "type": "log",
+                "level": "info",
+                "message": f"⏳ 下载 server wheel..."
+            }))
+        try:
+            wheel_url = f"{HTTP_BASE}/files/wheels/{package}.whl"
+            add_log("info", f"📥 下载 {wheel_url}")
+            
+            # 带进度上报的下载
+            resp = requests.get(wheel_url, timeout=120, stream=True)
+            if resp.status_code == 200:
+                total = int(resp.headers.get('Content-Length', 0))
+                downloaded = 0
+                wheel_path = f"/tmp/{package}.whl"
+                
+                with open(wheel_path, 'wb') as f:
+                    for chunk in resp.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        # 上报下载进度
+                        if total > 0 and task_id and ws_connection:
+                            download_progress = int(downloaded / total * 100)
+                            await ws_connection.send(json.dumps({
+                                "type": "progress",
+                                "task_id": task_id,
+                                "progress": 75 + (download_progress // 4),
+                                "status": "running",
+                                "extra": {
+                                    "download_mb": round(downloaded / 1024 / 1024, 2),
+                                    "total_mb": round(total / 1024 / 1024, 2)
+                                }
+                            }))
+                
+                add_log("success", f"✅ 下载完成 {round(downloaded / 1024 / 1024, 2)}MB")
+                
+                cmd = ["pip", "install", wheel_path, "-v"]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+                if result.returncode == 0:
+                    add_log("success", f"✅ {package} 安装成功 (server wheel)")
+                    pkg_installed = True
+                    install_source = "server_wheel"
+                else:
+                    add_log("error", f"❌ {package} wheel 安装失败：{result.stderr[:200]}")
+            else:
+                add_log("warn", f"⚠️ {package} wheel 不存在 (404)")
+        except subprocess.TimeoutExpired:
+            add_log("error", f"❌ {package} wheel 安装超时")
+        except Exception as e:
+            add_log("error", f"❌ {package} wheel 下载异常：{e}")
+    
+    # 记录安装结果
+    worker_state["dependency_install_log"].append({
+        "package": package,
+        "success": pkg_installed,
+        "source": install_source
+    })
+    if len(worker_state["dependency_install_log"]) > 10:
+        worker_state["dependency_install_log"].pop(0)
+    
+    state_changed.set()
+    
+    # 上报最终结果
+    if task_id and ws_connection:
+        if pkg_installed:
+            await ws_connection.send(json.dumps({
+                "type": "progress",
+                "task_id": task_id,
+                "progress": 100,
+                "status": "completed",
+                "result": {"source": install_source}
+            }))
+            await ws_connection.send(json.dumps({
+                "type": "complete",
+                "task_id": task_id,
+                "result": {
+                    "package": package,
+                    "installed": True,
+                    "source": install_source
+                }
+            }))
+            add_log("success", f"🎉 {package} 安装完成")
+        else:
+            await ws_connection.send(json.dumps({
+                "type": "progress",
+                "task_id": task_id,
+                "progress": 100,
+                "status": "failed"
+            }))
+            await ws_connection.send(json.dumps({
+                "type": "error",
+                "task_id": task_id,
+                "error": f"所有源都失败"
+            }))
+            add_log("error", f"❌ {package} 安装失败 - 所有源都尝试过了")
+    
+    worker_state["status"] = "idle"
+    worker_state["current_operation"] = None
+    worker_state["current_task"] = None
+    state_changed.set()
+
 async def install_dependencies_smart(packages, task_id=None):
-    """安装依赖 - 本地 pip 国内源优先，服务器下发备选"""
+    """安装依赖 - 本地 pip 国内源优先，服务器下发备选 (批量安装，兼容旧版)"""
     global worker_state, ws_connection
     
     if not packages:
@@ -501,30 +793,104 @@ async def install_dependencies_smart(packages, task_id=None):
         await ws_connection.send(json.dumps({"type": "progress", "task_id": task_id, "progress": 100, "status": "completed"}))
         await ws_connection.send(json.dumps({"type": "complete", "task_id": task_id, "result": {"installed": worker_state["dependency_installed_count"]}}))
 
-async def execute_training(task, ws):
+async def execute_training_with_checkpoint(task, ws):
+    """执行训练任务 - 支持检查点保存和断点续训"""
     task_id = task.get("task_id")
+    checkpoint_path = f"/data/checkpoints/{task_id}.json"
+    
     worker_state["status"] = "training"
     worker_state["current_task"] = task
+    
     epochs = task.get("epochs", 10)
     worker_state["training_total_epochs"] = epochs
-    for epoch in range(epochs):
+    
+    # 尝试加载检查点
+    start_epoch = 0
+    if os.path.exists(checkpoint_path):
+        try:
+            with open(checkpoint_path, 'r', encoding='utf-8') as f:
+                checkpoint = json.load(f)
+                start_epoch = checkpoint.get("completed_epochs", 0)
+                add_log("info", f"📂 加载检查点，从 epoch {start_epoch + 1}/{epochs} 继续")
+                if ws:
+                    await ws.send(json.dumps({
+                        "type": "log",
+                        "level": "info",
+                        "message": f"📂 从检查点恢复：epoch {start_epoch + 1}/{epochs}"
+                    }))
+        except Exception as e:
+            add_log("warn", f"⚠️ 检查点加载失败：{e}")
+            start_epoch = 0
+    
+    # 确保检查点目录存在
+    os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+    
+    for epoch in range(start_epoch, epochs):
         worker_state["training_epoch"] = epoch + 1
+        
         for progress in range(0, 101, 10):
             await asyncio.sleep(0.2)
             loss = 0.5 * (1 - progress/100) * (1 - epoch/epochs)
             worker_state["training_progress"] = int((epoch + progress/100) / epochs * 100)
             worker_state["training_loss"] = round(loss, 4)
+            
             if ws:
-                await ws.send(json.dumps({"type": "progress", "task_id": task_id, "progress": int((epoch + progress/100) / epochs * 100), "status": "running", "epoch": epoch + 1, "loss": loss}))
+                await ws.send(json.dumps({
+                    "type": "progress",
+                    "task_id": task_id,
+                    "progress": int((epoch + progress/100) / epochs * 100),
+                    "status": "running",
+                    "epoch": epoch + 1,
+                    "loss": loss
+                }))
+            
             add_log("progress", f"Epoch {epoch+1}/{epochs} - {progress}% - Loss:{loss:.3f}")
             state_changed.set()
+        
+        # 每个 epoch 完成后保存检查点
+        checkpoint = {
+            "task_id": task_id,
+            "completed_epochs": epoch + 1,
+            "loss": worker_state["training_loss"],
+            "timestamp": datetime.now().isoformat(),
+            "config": task
+        }
+        
+        try:
+            with open(checkpoint_path, 'w', encoding='utf-8') as f:
+                json.dump(checkpoint, f, indent=2, ensure_ascii=False)
+            add_log("success", f"💾 检查点已保存：epoch {epoch + 1}/{epochs}")
+        except Exception as e:
+            add_log("error", f"❌ 检查点保存失败：{e}")
+    
+    # 训练完成后清理检查点
+    if os.path.exists(checkpoint_path):
+        try:
+            os.remove(checkpoint_path)
+            add_log("info", "🧹 训练完成，清理检查点")
+        except:
+            pass
+    
     worker_state["status"] = "idle"
     worker_state["current_task"] = None
     worker_state["training_progress"] = 0
+    
     if ws:
-        await ws.send(json.dumps({"type": "complete", "task_id": task_id, "result": {"final_loss": worker_state["training_loss"]}}))
-    add_log("success", f"Training complete: {task_id}")
+        await ws.send(json.dumps({
+            "type": "complete",
+            "task_id": task_id,
+            "result": {
+                "final_loss": worker_state["training_loss"],
+                "epochs_completed": epochs
+            }
+        }))
+    
+    add_log("success", f"🎉 Training complete: {task_id}")
     state_changed.set()
+
+# 兼容旧版调用
+async def execute_training(task, ws):
+    return await execute_training_with_checkpoint(task, ws)
 
 @app.route('/health')
 def health():

@@ -5,6 +5,7 @@ python-multipart>=0.0.6
 
 # Database
 sqlite-utils>=3.36
+duckdb>=1.0.0
 
 # Data
 pandas>=2.1.0
